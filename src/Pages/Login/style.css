@@ -1,0 +1,69 @@
+main {
+  background: linear-gradient(
+    180deg,
+    rgba(0, 24, 49, 0.98),
+    rgba(0, 53, 110, 0.83),
+    rgba(30, 88, 150, 0.76),
+    rgba(0, 53, 110, 0.75)
+  );
+  max-height: 300px;
+  overflow-y: auto;
+}
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.inputWrapper {
+  display: flex;
+  flex-direction: column;
+}
+.logo {
+  width: 30vw;
+  margin: 8vh auto 6vh auto;
+}
+.loginInput {
+  padding: 4vh 4vh 4vh 2vh;
+  background: transparent;
+  border: transparent;
+  border-bottom: 1.5px solid #999;
+  outline: none;
+  color: #eee;
+  caret-color: lime;
+}
+.loginInput::placeholder {
+  color: #ddd;
+}
+.loginInput:focus {
+  border-bottom: 2.5px solid #bbbccb;
+}
+.loginBtn {
+  text-transform: uppercase;
+  background-color: rgb(56, 211, 195);
+  color: #fff;
+  border-radius: 1rem;
+  padding: 3vh 18vw;
+  margin: 10vh auto;
+  border: none;
+  outline: none;
+}
+.loginBtn:focus {
+  box-shadow: 0px 0px 9px rgb(0, 255, 234);
+}
+.passwordWrapper {
+  position: relative;
+}
+.iconbtn {
+  position: absolute;
+  right: 5%;
+  top: 4.5vh;
+  color: #eee;
+  border-radius: 50%;
+  background: transparent;
+  outline: none;
+  border: none;
+}
+.iconbtn:focus {
+  box-shadow: 0px 0px 6px #fff;
+  background-color: #dddddd73;
+}
