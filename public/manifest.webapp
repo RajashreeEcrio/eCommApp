@@ -13,5 +13,8 @@
         "name": "Ecrio",
         "url": "https://ecrio.com"
     },
-    "type": "web"
+    "type": "web",
+    "permissions":{
+        "systemXHR":{}
+    }
 }

@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import svelte from 'rollup-plugin-svelte';
+import dev from 'rollup-plugin-dev';
 import commonjs from '@rollup/plugin-commonjs';
 import babel from '@rollup/plugin-babel';
 import terser from '@rollup/plugin-terser';
@@ -68,7 +69,16 @@ export default {
 
 		// In dev mode, call `npm run start` once
 		// the bundle has been generated
-		!production && serve(),
+		!production && dev({
+			dirs:['public'],
+			spa:'public/index.html',
+			proxy:[
+				{
+					from:'/api',
+					to:'https://3.235.250.245:3003'
+				},
+			]
+		}),
 
 		// Watch the `public` directory and refresh the
 		// browser on changes when not in production
