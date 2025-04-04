@@ -2,11 +2,12 @@
   import { onMount, tick } from "svelte";
   import { push } from "svelte-spa-router";
   import Spinner from "../../Components/Spinner/Spinner.svelte";
+  import { currentContact } from "../../Store/store";
   import "./style.css";
 
   let contacts = [];
   let loading = false;
-  let currentContact = "";
+
   let contactRefs = [];
   let currentId = 0;
 
@@ -62,7 +63,7 @@
   {#if loading}
     <Spinner />
   {:else}
-    {#each contacts as { contact_name, contact_id }, index}
+    {#each contacts as contact, index}
       <div
         bind:this={contactRefs[index]}
         class="contact"
@@ -71,14 +72,14 @@
       >
         <div class="userDetails">
           <i class="fa-solid fa-circle-user profile"></i>
-          <h6 class="uname">{contact_name}</h6>
+          <h6 class="uname">{contact.contact_name}</h6>
         </div>
 
         <div class="icons">
           <button
             class="chatBtn"
             on:click={() => {
-              currentContact = contact_id;
+              currentContact.set(contact);
               push("/chatscreen");
             }}
           >
