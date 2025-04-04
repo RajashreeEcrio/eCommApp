@@ -77,7 +77,8 @@ export default {
 					from:'/api',
 					to:'https://3.235.250.245:3003'
 				},
-			]
+			],
+			host:'0.0.0.0'
 		}),
 
 		// Watch the `public` directory and refresh the

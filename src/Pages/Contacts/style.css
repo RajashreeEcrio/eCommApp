@@ -17,6 +17,9 @@
     justify-content: space-between;
     padding: 5vh 3vw;
   }
+  .contact:focus{
+    box-shadow: 0px 0px 3px rgba(155, 180, 189, 0.14);
+  }
   .profile {
     color: #41a2d1;
     font-size: 1.5rem;

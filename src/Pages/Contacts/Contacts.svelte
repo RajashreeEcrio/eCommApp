@@ -1,13 +1,14 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { push } from "svelte-spa-router";
   import Spinner from "../../Components/Spinner/Spinner.svelte";
   import "./style.css";
 
   let contacts = [];
-  $: loading = false;
+  let loading = false;
   let currentContact = "";
-  $: contactRefs = [];
+  let contactRefs = [];
+  let currentId = 0;
 
   const fetchData = async () => {
     loading = true;
@@ -29,19 +30,26 @@
     } catch (error) {
       console.log("Error fetching contacts", error);
       loading = false;
+      await tick();
+      if (contactRefs[currentId]) {
+        contactRefs[currentId].focus();
+      }
     }
   };
 
   const handleKeyDown = (e) => {
-    // if (e.key === "ArrowLeft") {
-    //   push("/");
-    // } else if (e.key === "ArrowRight") {
-    //   push("/chatscreen");
-    // }
+    if (e.key === "ArrowDown") {
+      currentId + 1 >= contactRefs.length ? (currentId = 0) : (currentId += 1);
+      contactRefs[currentId].focus();
+    } else if (e.key === "ArrowUp") {
+      currentId - 1 < 0 ? (currentId = 0) : (currentId -= 1);
+      contactRefs[currentId].focus();
+    }
   };
 
   onMount(() => {
     fetchData();
+    // contactRefs[currentId].focus();
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
@@ -55,7 +63,12 @@
     <Spinner />
   {:else}
     {#each contacts as { contact_name, contact_id }, index}
-      <div bind:this={contactRefs[index]} class="contact">
+      <div
+        bind:this={contactRefs[index]}
+        class="contact"
+        tabindex="0"
+        role="button"
+      >
         <div class="userDetails">
           <i class="fa-solid fa-circle-user profile"></i>
           <h6 class="uname">{contact_name}</h6>
