@@ -6,9 +6,17 @@
   import { currentContact } from "../../Store/store";
   import "./style.css";
 
-  let msg = "";
+  $: msg = "";
   let textref;
+  let sendref;
+  let backref;
+  let delref;
   $: chats = [];
+
+  // Focusing the text box
+  const handleTextFocus=()=>{
+    textref?.focus();
+  }
 
   const messageSend = () => {
     if (msg.trim() === "") {
@@ -19,24 +27,32 @@
       chats = mArray;
       msg = "";
     }
+    handleTextFocus();
   };
-
-  const voiceRecord = () => {};
 
   const delMessages = () => {
     chats = [];
   };
 
+  // Handling D-pac navigation
   const handleKeyDown = (e) => {
-    // if (e.key === "Enter") {
-    //   textref.focus();
-    // }
+    if (e.key === "Enter") {
+      sendref.click();
+    } else if (e.key === "SoftLeft") {
+      backref.click();
+    } else if (e.key === "SoftRight") {
+      if (msg.trim !== "") {
+        msg = msg.slice(0, msg.length - 1);
+      }
+    } else if (e.key === "ArrowUp") {
+      delref.click();
+    }
   };
 
+  // Autofocus Textbox onload
   onMount(() => {
-    // textref.focus();
     window.addEventListener("keydown", handleKeyDown);
-
+    handleTextFocus();
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
@@ -47,7 +63,12 @@
   <!-- header that has username & number -->
   <div class="header">
     <div class="leftbox">
-      <button class="back" tabIndex="0" on:click={() => push("/contacts")}>
+      <button
+        bind:this={backref}
+        class="back"
+        tabIndex="0"
+        on:click={() => push("/contacts")}
+      >
         <i class="fa-solid fa-arrow-left"></i>
       </button>
       <div class="uname">
@@ -56,7 +77,7 @@
       </div>
     </div>
     {#if chats.length > 0}
-      <button class="del" on:click={delMessages}>
+      <button bind:this={delref} class="del" on:click={delMessages}>
         <i class="fa-solid fa-trash"></i>
       </button>
     {/if}
@@ -83,17 +104,10 @@
       className="textbox"
       onInput={(e) => (msg = e.target.value)}
       value={msg}
-      ref={textref}
+      bind:ref={textref}
     />
-    <button
-      on:click={msg.trim() === "" ? voiceRecord : messageSend}
-      class="sendBtn"
-    >
-      {#if msg.trim() === ""}
-        <i class="fa-solid fa-microphone"></i>
-      {:else}
-        <i class="fa-solid fa-paper-plane"></i>
-      {/if}
+    <button bind:this={sendref} on:click={messageSend} class="sendBtn">
+      <i class="fa-solid fa-paper-plane"></i>
     </button>
   </div>
 </div>
