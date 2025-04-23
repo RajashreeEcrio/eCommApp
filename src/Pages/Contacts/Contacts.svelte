@@ -10,6 +10,7 @@
 
   let contactRefs = [];
   let currentId = 0;
+  let focusFlag = false;
 
   const fetchData = async () => {
     loading = true;
@@ -38,19 +39,37 @@
     }
   };
 
+  // D-pad navigation
   const handleKeyDown = (e) => {
+    // Contacts navigation Up & Down
     if (e.key === "ArrowDown") {
       currentId + 1 >= contactRefs.length ? (currentId = 0) : (currentId += 1);
       contactRefs[currentId].focus();
     } else if (e.key === "ArrowUp") {
-      currentId - 1 < 0 ? (currentId = 0) : (currentId -= 1);
+      currentId - 1 < 0
+        ? (currentId = contactRefs.length - 1)
+        : (currentId -= 1);
       contactRefs[currentId].focus();
+    } 
+    // Focusing between Chat & edit button of the current row(contact) Left & Right
+    else if (e.key === "ArrowRight"||e.key==="ArrowLeft") {
+      focusFlag = !focusFlag;
+      const currentDiv = contactRefs[currentId];
+      const btnarr = [
+        currentDiv.querySelector(".chatBtn"),
+        currentDiv.querySelector(".edit"),
+      ];
+      if (focusFlag) {
+        btnarr[0].focus();
+      } else {
+        btnarr[1].focus();
+      }
     }
   };
 
   onMount(() => {
     fetchData();
-    // contactRefs[currentId].focus();
+    
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
