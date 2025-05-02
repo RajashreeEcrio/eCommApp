@@ -1,6 +1,8 @@
 <script>
   import { onMount } from "svelte";
   import { push } from "svelte-spa-router";
+  import { sipFormData } from "../../Store/store";
+  import { registerSIP } from "../../JsSIP/sip";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
   import "./style.css";
 
@@ -66,8 +68,17 @@
     }
   };
 
-  const Login = () => {
-    push("/contacts");
+  const Login = async () => {
+    sipFormData.set(formData);
+    try {
+      const isRegistered = await registerSIP();
+      if (isRegistered) {
+        console.log("Register successful! Navigating to contacts");
+        push("/contacts");
+      }
+    } catch (err) {
+      console.log("Register failed=>", err);
+    }
   };
 
   // Handling D-pad events

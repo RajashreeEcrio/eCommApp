@@ -3,7 +3,8 @@
   import { push } from "svelte-spa-router";
   import ChatBubble from "../../Components/ChatBubble/ChatBubble.svelte";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
-  import { currentContact } from "../../Store/store";
+  import { currentContact, receiveMsg, sipFormData } from "../../Store/store";
+  import { sendMessage } from "../../JsSIP/sip";
   import "./style.css";
 
   $: msg = "";
@@ -14,16 +15,24 @@
   $: chats = [];
 
   // Focusing the text box
-  const handleTextFocus=()=>{
+  const handleTextFocus = () => {
     textref?.focus();
-  }
+  };
 
   const messageSend = () => {
     if (msg.trim() === "") {
       alert("Message can't be empty");
     } else {
       let mArray = [...chats];
-      mArray.push(msg);
+      mArray.push({
+        messagebody: msg,
+        className: "send",
+      });
+      sendMessage(
+        $currentContact.contact_id,
+        msg,
+        $sipFormData.phoneNum
+      );
       chats = mArray;
       msg = "";
     }
@@ -34,7 +43,7 @@
     chats = [];
   };
 
-  // Handling D-pac navigation
+  // Handling D-pad navigation
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
       sendref.click();
@@ -48,6 +57,13 @@
       delref.click();
     }
   };
+
+  receiveMsg.subscribe((value) => {
+    console.log("receive message has changed", value);
+    if (value) {
+      chats = [...chats, { messagebody: value, className: "receive" }];
+    }
+  });
 
   // Autofocus Textbox onload
   onMount(() => {
@@ -89,8 +105,10 @@
     {#if chats.length > 0}
       {#each chats as currentmsg, index}
         <ChatBubble
-          message={currentmsg}
-          className={index % 2 === 0 ? "sendBubble" : "receiveBubble"}
+          message={currentmsg.messagebody}
+          className={currentmsg.className === "send"
+            ? "sendBubble"
+            : "receiveBubble"}
         />
       {/each}
     {/if}

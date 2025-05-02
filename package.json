@@ -22,6 +22,7 @@
     "svelte": "^3.55.0"
   },
   "dependencies": {
+    "jssip": "^3.10.1",
     "sirv-cli": "^2.0.0",
     "svelte-spa-router": "^4.0.1"
   }
