@@ -1,22 +1,22 @@
-// User Agent instance
-import { get } from "svelte/store";
-import { receiveMsg, sipFormData } from "../Store/store";
-let ua;
+import { receiveMsg,  } from "../Store/store";
 
-const userData = get(sipFormData);
+let ua;
 
 const socket = new JsSIP.WebSocketInterface("ws://192.168.1.26:5066");
 
-const configuration = {
-  sockets: [socket],
-  uri: `sip:+919600816183@ecrio.com`,
-  password: `ecrio@123`,
-};
-
-ua = new JsSIP.UA(configuration);
-
-export const registerSIP = () => {
+export const registerSIP = (data) => {
   return new Promise((resolve, reject) => {
+    const configuration = {
+      sockets: [socket],
+      uri: `sip:${data.phoneNum}@ecrio.com`,
+      password: data.password,
+    };
+
+    ua = new JsSIP.UA(configuration);
+
+    // Initializing the receive event
+    initializeReceive(ua);
+
     ua.on("registered", () => {
       console.log("SIP registered");
       resolve(true);
@@ -33,14 +33,13 @@ export const registerSIP = () => {
 
 // Generate new dynamic contribution IDs per message
 const generateContributionId = () => {
-  return Math.random().toString(36).substring(2, 15); // consider UUID later for more uniqueness
+  return Math.random().toString(36).substring(2, 15);
 };
 
 export const sendMessage = (to, message, senderUri) => {
   if (ua) {
     const now = new Date().toISOString();
     const contributionId = generateContributionId();
-    const cpimFrom = `<sip:${senderUri}@ecrio.com?Accept-Contact=+sip.instance%3D%22%3Curn:gsma:imei:01437600-003859-4%3E%22%3Brequire%3Bexplicit>`;
 
     const cpimBody =
       `From: <sip:${senderUri}@ecrio.com?Accept-Contact=+sip.instance%3D%22%3Curn:gsma:imei:01437600-003859-4%3E%22%3Brequire%3Bexplicit>\r\n` +
@@ -97,38 +96,37 @@ const parseCpimBody = (body) => {
   };
 };
 
-ua.on("newMessage", (e) => {
-  console.log("eventobj =>", e);
+// Initialize the receive event to monitor incoming messages
+const initializeReceive = (uaInstance) => {
+  uaInstance.on("newMessage", (e) => {
+    console.log("eventobj =>", e);
 
-  if (e.originator === "remote") {
-    const rawBody = e.request.body;
-    const contentType = e.request.getHeader("Content-Type");
+    if (e.originator === "remote") {
+      const rawBody = e.request.body;
+      const contentType = e.request.getHeader("Content-Type");
 
-    // If it's RCS (message/cpim), parse it
-    if (contentType && contentType.includes("message/cpim")) {
-      const parsed = parseCpimBody(rawBody);
+      // If it's RCS (message/cpim), parse it
+      if (contentType && contentType.includes("message/cpim")) {
+        const parsed = parseCpimBody(rawBody);
 
-      if (parsed.content) {
-        console.log("Received RCS message:", parsed);
-        receiveMsg.set(parsed.content);
+        if (parsed.content) {
+          console.log("Received RCS message:", parsed);
+          receiveMsg.set(parsed.content);
+        } else {
+          console.warn("Failed to parse CPIM body:", rawBody);
+        }
       } else {
-        console.warn("Failed to parse CPIM body:", rawBody);
+        // fallback for plain text SIP MESSAGE
+        const message = {
+          sender: e.request.from.uri,
+          content: rawBody,
+        };
+        console.log("Received plain message:", message);
+        receiveMsg.set(message.content);
       }
-    } else {
-      // fallback for plain text SIP MESSAGE
-      const message = {
-        sender: e.request.from.uri,
-        content: rawBody,
-      };
-      console.log("Received plain message:", message);
-      receiveMsg.set(message.content);
     }
-  }
-});
-
-ua.on("sipEvent", (e) => {
-  console.log("SIP Event =>", e);
-});
+  });
+};
 
 export const isSIPRegistered = () => {
   return ua ? ua.isRegistered() : false;
