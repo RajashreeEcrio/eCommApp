@@ -71,7 +71,7 @@
   const Login = async () => {
     sipFormData.set(formData);
     try {
-      const isRegistered = await registerSIP();
+      const isRegistered = await registerSIP(formData);
       if (isRegistered) {
         console.log("Register successful! Navigating to contacts");
         push("/contacts");
