@@ -1,9 +1,11 @@
-import { receiveMsg,  } from "../Store/store";
+import { receiveMsgStore, readReceiptStore } from "../Store/store";
 
 let ua;
+const socket = new JsSIP.WebSocketInterface("ws://192.168.1.71:5066");
 
-const socket = new JsSIP.WebSocketInterface("ws://192.168.1.26:5066");
+const generateId = () => Math.random().toString(36).substring(2, 15);
 
+// SIP Registration
 export const registerSIP = (data) => {
   return new Promise((resolve, reject) => {
     const configuration = {
@@ -13,17 +15,15 @@ export const registerSIP = (data) => {
     };
 
     ua = new JsSIP.UA(configuration);
-
-    // Initializing the receive event
     initializeReceive(ua);
 
     ua.on("registered", () => {
-      console.log("SIP registered");
+      console.log("✅ SIP registered");
       resolve(true);
     });
 
     ua.on("registrationFailed", (e) => {
-      console.error("SIP registration failed", e);
+      console.error("❌ SIP registration failed", e);
       reject(false);
     });
 
@@ -31,103 +31,167 @@ export const registerSIP = (data) => {
   });
 };
 
-// Generate new dynamic contribution IDs per message
-const generateContributionId = () => {
-  return Math.random().toString(36).substring(2, 15);
-};
-
+// Send CPIM message with delivery + read receipt request
 export const sendMessage = (to, message, senderUri) => {
-  if (ua) {
-    const now = new Date().toISOString();
-    const contributionId = generateContributionId();
-
-    const cpimBody =
-      `From: <sip:${senderUri}@ecrio.com?Accept-Contact=+sip.instance%3D%22%3Curn:gsma:imei:01437600-003859-4%3E%22%3Brequire%3Bexplicit>\r\n` +
-      `To: <sip:${to}@ecrio.com>\r\n` +
-      `DateTime: ${now}\r\n` +
-      `NS: imdn <urn:ietf:params:imdn>\r\n` +
-      `imdn.Message-ID: ${contributionId}\r\n` +
-      `imdn.Disposition-Notification: positive-delivery,display\r\n` +
-      `\r\n` +
-      `Content-Type: text/plain;charset=UTF-8\r\n` +
-      `Content-Length: ${message.length + 11}\r\n` +
-      `\r\n` +
-      `TEXT:::-:::${message}`;
-
-    const messageOptions = {
-      contentType: "message/cpim",
-      extraHeaders: [
-        'Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg";require;explicit',
-        `P-Preferred-Identity: <sip:${senderUri}@ecrio.com>`,
-        'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
-        "Request-Disposition: no-fork",
-        "Route: <sip:192.168.1.26:9090;lr>",
-        `Conversation-ID: ${contributionId}`,
-        `Contribution-ID: ${contributionId}`,
-      ],
-    };
-
-    const target = `sip:${to}@ecrio.com`;
-    ua.sendMessage(target, cpimBody, messageOptions);
-    console.log("Message sent:", messageOptions);
-  } else {
-    console.log("SIP UA not initialized");
+  if (!ua || !ua.isRegistered()) {
+    console.error("❌ SIP UA not initialized or not registered");
+    return;
   }
-};
 
-const parseCpimBody = (body) => {
-  const contentMatch = body.match(/TEXT:::-:::(.*)/s);
-  const content = contentMatch ? contentMatch[1].trim() : null;
+  const now = new Date().toISOString();
+  const messageId = generateId();
+  const contributionId = generateId();
 
-  const fromMatch = body.match(/^From:\s*(.+)$/m);
-  const from = fromMatch ? fromMatch[1].trim() : null;
+  const cpimBody =
+    `From: <sip:${senderUri}@ecrio.com>\r\n` +
+    `To: <sip:${to}@ecrio.com>\r\n` +
+    `DateTime: ${now}\r\n` +
+    `NS: imdn <urn:ietf:params:imdn>\r\n` +
+    `imdn.Message-ID: ${messageId}\r\n` +
+    `imdn.Disposition-Notification: positive-delivery, display\r\n` +
+    `\r\n` +
+    `Content-Type: text/plain;charset=UTF-8\r\n` +
+    `Content-Length: ${new TextEncoder().encode(`TEXT:::-:::${message}`).length}\r\n` +
+    `\r\n` +
+    `TEXT:::-:::${message}`;
 
-  const toMatch = body.match(/^To:\s*(.+)$/m);
-  const to = toMatch ? toMatch[1].trim() : null;
-
-  const dateMatch = body.match(/^DateTime:\s*(.+)$/m);
-  const datetime = dateMatch ? dateMatch[1].trim() : null;
-
-  return {
-    from,
-    to,
-    datetime,
-    content,
+  const messageOptions = {
+    contentType: "message/cpim",
+    extraHeaders: [
+      'Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg";require;explicit',
+      `P-Preferred-Identity: <sip:${senderUri}@ecrio.com>`,
+      'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
+      "Request-Disposition: no-fork",
+      "Route: <sip:192.168.1.71:9090;lr>",
+      `Conversation-ID: ${contributionId}`,
+      `Contribution-ID: ${contributionId}`,
+    ],
   };
+
+  ua.sendMessage(`sip:${to}@ecrio.com`, cpimBody, messageOptions);
+
+  receiveMsgStore.update(msgs => [...msgs, {
+    from: `sip:${senderUri}@ecrio.com`,
+    to: `sip:${to}@ecrio.com`,
+    content: message,
+    datetime: now,
+    messageId,
+    status: "sent",
+  }]);
+
+  console.log("📤 Message sent with ID:", messageId);
 };
 
-// Initialize the receive event to monitor incoming messages
 const initializeReceive = (uaInstance) => {
   uaInstance.on("newMessage", (e) => {
-    console.log("eventobj =>", e);
+    if (e.originator !== "remote") return;
 
-    if (e.originator === "remote") {
-      const rawBody = e.request.body;
-      const contentType = e.request.getHeader("Content-Type");
+    const rawBody = e.request.body;
+    const contentType = e.request.getHeader("Content-Type");
+    const from = e.request.from.uri;
 
-      // If it's RCS (message/cpim), parse it
-      if (contentType && contentType.includes("message/cpim")) {
-        const parsed = parseCpimBody(rawBody);
+    if (contentType?.includes("message/cpim")) {
+      const parsed = parseCpimBody(rawBody);
+      if (!parsed) return;
 
-        if (parsed.content) {
-          console.log("Received RCS message:", parsed);
-          receiveMsg.set(parsed.content);
-        } else {
-          console.warn("Failed to parse CPIM body:", rawBody);
-        }
-      } else {
-        // fallback for plain text SIP MESSAGE
-        const message = {
-          sender: e.request.from.uri,
-          content: rawBody,
-        };
-        console.log("Received plain message:", message);
-        receiveMsg.set(message.content);
+      // Handle receipt
+      if (parsed.imdnType === "positive-delivery" || parsed.imdnType === "display") {
+        readReceiptStore.update(receipts => [...receipts, parsed]);
+
+        // Update existing message status
+       receiveMsgStore.update(msgs => {
+  if (!Array.isArray(msgs)) {
+    console.warn("❗ receiveMsgStore is not an array:", msgs);
+    return [];
+  }
+
+  return msgs.map(msg =>
+    msg.messageId === parsed.originalMessageId
+      ? { ...msg, status: parsed.imdnType === "display" ? "read" : "delivered" }
+      : msg
+  );
+});
+
+
+        console.log(`📥 Received ${parsed.imdnType} receipt:`, parsed);
+        return;
       }
+
+      // Store new message
+      receiveMsgStore.update(msgs => [...msgs, {
+        from: parsed.from,
+        to: parsed.to,
+        content: parsed.content,
+        datetime: parsed.datetime,
+        messageId: parsed.messageId,
+        status: "received",
+      }]);
+
+      console.log("📥 New message:", parsed);
+
+      // Send delivery receipt
+      sendReceipt(parsed.from, parsed.messageId, "positive-delivery");
+
+      // Simulate read
+      setTimeout(() => {
+        sendReceipt(parsed.from, parsed.messageId, "display");
+      }, 2000);
     }
   });
 };
 
-export const isSIPRegistered = () => {
-  return ua ? ua.isRegistered() : false;
+// Parse CPIM
+const parseCpimBody = (body) => {
+  try {
+    const from = (body.match(/^From:\s*(.+)$/m)?.[1] || "").trim();
+    const to = (body.match(/^To:\s*(.+)$/m)?.[1] || "").trim();
+    const datetime = (body.match(/^DateTime:\s*(.+)$/m)?.[1] || "").trim();
+    const messageId = (body.match(/^imdn.Message-ID:\s*(.+)$/m)?.[1] || "").trim();
+    const disposition = (body.match(/^imdn.Disposition-Notification:\s*(.+)$/m)?.[1] || "").trim();
+    const originalMessageId = (body.match(/^imdn.Original-Message-ID:\s*(.+)$/m)?.[1] || "").trim();
+    const content = (body.match(/TEXT:::-:::(.*)/s)?.[1] || "").trim();
+
+    const imdnType =
+      disposition.includes("positive-delivery") && content === "" ? "positive-delivery"
+      : disposition.includes("display") && content === "" ? "display"
+      : null;
+
+    return { from, to, datetime, content, messageId, originalMessageId, imdnType };
+  } catch (err) {
+    console.error("❌ Failed to parse CPIM:", err);
+    return null;
+  }
+};
+
+// Send receipt
+const sendReceipt = (to, originalMessageId, type = "positive-delivery") => {
+  if (!ua) return;
+
+  const now = new Date().toISOString();
+  const messageId = generateId();
+
+  const cpimReceipt =
+    `From: <sip:me@ecrio.com>\r\n` +
+    `To: <${to}>\r\n` + // safe in CPIM
+    `DateTime: ${now}\r\n` +
+    `NS: imdn <urn:ietf:params:imdn>\r\n` +
+    `imdn.Message-ID: ${messageId}\r\n` +
+    `imdn.Disposition-Notification: ${type}\r\n` +
+    `imdn.Original-Message-ID: ${originalMessageId}\r\n` +
+    `\r\n` +
+    `Content-Type: text/plain;charset=UTF-8\r\n` +
+    `Content-Length: 0\r\n\r\n`;
+
+  const options = {
+    contentType: "message/cpim",
+    extraHeaders: [
+      'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
+    ],
+  };
+
+  // ✅ sanitize for JsSIP sending
+  const cleanTo = to.replace(/[<>]/g, "");
+  ua.sendMessage(cleanTo, cpimReceipt, options);
+
+  console.log(`📤 Sent ${type} receipt for ${originalMessageId}`);
 };

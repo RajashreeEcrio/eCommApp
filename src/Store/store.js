@@ -1,6 +1,5 @@
 import { writable } from "svelte/store";
 
-// export let contacts = writable([]);
 export let currentContact = writable({});
 export let sipFormData = writable({
   uname: "",
@@ -9,4 +8,8 @@ export let sipFormData = writable({
   serverIP: "",
   port: "",
 });
-export let receiveMsg = writable('');
+
+// Store array of message objects
+// { from, to, content, datetime, messageId, status: 'sent' | 'delivered' | 'read' }
+export let receiveMsgStore = writable([]);
+export const readReceiptStore = writable([]);
