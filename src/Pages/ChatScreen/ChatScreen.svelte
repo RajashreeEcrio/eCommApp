@@ -3,7 +3,7 @@
   import { push } from "svelte-spa-router";
   import ChatBubble from "../../Components/ChatBubble/ChatBubble.svelte";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
-  import { currentContact, receiveMsg, sipFormData } from "../../Store/store";
+  import { currentContact, receiveMsgStore, sipFormData } from "../../Store/store";
   import { sendMessage } from "../../JsSIP/sip";
   import "./style.css";
 
@@ -14,28 +14,35 @@
   let delref;
   $: chats = [];
 
-  // Focusing the text box
   const handleTextFocus = () => {
     textref?.focus();
   };
 
+ const updateMessageTickUI = (messageId, status) => {
+  chats = chats.map(chat =>
+    chat.id === messageId ? { ...chat, status } : chat
+  );
+};
+
+
   const messageSend = () => {
     if (msg.trim() === "") {
       alert("Message can't be empty");
-    } else {
-      let mArray = [...chats];
-      mArray.push({
+      return;
+    }
+    const messageId = Date.now(); // unique ID
+    chats = [
+      ...chats,
+      {
+        id: messageId,
         messagebody: msg,
         className: "send",
-      });
-      sendMessage(
-        $currentContact.contact_id,
-        msg,
-        $sipFormData.phoneNum
-      );
-      chats = mArray;
-      msg = "";
-    }
+        status: "sent"
+      }
+    ];
+    sendMessage($currentContact.contact_id, msg, $sipFormData.phoneNum, messageId);
+    updateMessageTickUI(messageId, "sent");
+    msg = "";
     handleTextFocus();
   };
 
@@ -43,40 +50,44 @@
     chats = [];
   };
 
-  // Handling D-pad navigation
   const handleKeyDown = (e) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && sendref) {
       sendref.click();
-    } else if (e.key === "SoftLeft") {
+    } else if (e.key === "SoftLeft" && backref) {
       backref.click();
     } else if (e.key === "SoftRight") {
-      if (msg.trim !== "") {
-        msg = msg.slice(0, msg.length - 1);
+      if (msg.trim() !== "") {
+        msg = msg.slice(0, -1);
       }
-    } else if (e.key === "ArrowUp") {
+    } else if (e.key === "ArrowUp" && delref) {
       delref.click();
     }
   };
 
-  receiveMsg.subscribe((value) => {
-    console.log("receive message has changed", value);
-    if (value) {
-      chats = [...chats, { messagebody: value, className: "receive" }];
+  $: if ($receiveMsgStore) {
+  const messageId = Date.now() + Math.floor(Math.random() * 1000);
+  chats = [
+    ...chats,
+    {
+      id: messageId,
+      messagebody: $receiveMsgStore,
+      className: "receive",
+      status: "delivered"
     }
-  });
+  ];
+  updateMessageTickUI(messageId, "delivered");
+  receiveMsgStore.set(""); // reset after handling
+}
 
-  // Autofocus Textbox onload
+
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
     handleTextFocus();
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => window.removeEventListener("keydown", handleKeyDown);
   });
 </script>
 
 <div class="screen">
-  <!-- header that has username & number -->
   <div class="header">
     <div class="leftbox">
       <button
@@ -88,8 +99,8 @@
         <i class="fa-solid fa-arrow-left"></i>
       </button>
       <div class="uname">
-        <h4 style={{ color: "#fff" }}>{$currentContact.contact_name}</h4>
-        <h6 style={{ color: "#fff" }}>{$currentContact.contact_id}</h6>
+        <h4 style="color: #fff;">{$currentContact.contact_name}</h4>
+        <h6 style="color: #fff;">{$currentContact.contact_id}</h6>
       </div>
     </div>
     {#if chats.length > 0}
@@ -98,27 +109,26 @@
       </button>
     {/if}
   </div>
+
   <hr style="color: #999;" />
 
-  <!-- chat screen, where the msgs are displayed -->
   <div class="chatwindow">
     {#if chats.length > 0}
-      {#each chats as currentmsg, index}
+      {#each chats as currentmsg (currentmsg.id)}
         <ChatBubble
+          id={currentmsg.id}
           message={currentmsg.messagebody}
-          className={currentmsg.className === "send"
-            ? "sendBubble"
-            : "receiveBubble"}
+          status={currentmsg.status}
+          className={currentmsg.className === "send" ? "sendBubble" : "receiveBubble"}
         />
       {/each}
     {/if}
   </div>
 
-  <!-- has input text box & send button -->
   <div class="box">
     <TextBox
       type="text"
-      placeholder={"Message..."}
+      placeholder="Message..."
       className="textbox"
       onInput={(e) => (msg = e.target.value)}
       value={msg}
