@@ -3,27 +3,54 @@
   import { push } from "svelte-spa-router";
   import ChatBubble from "../../Components/ChatBubble/ChatBubble.svelte";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
-  import { currentContact, receiveMsgStore, sipFormData } from "../../Store/store";
+  import { currentContact, receiveMsgStore, sipFormData, addMessage, clearMessagesForContact } from "../../Store/store";
   import { sendMessage } from "../../JsSIP/sip";
-  import "./style.css";
+  import { derived } from "svelte/store";
 
-  $: msg = "";
-  let textref;
-  let sendref;
-  let backref;
-  let delref;
-  $: chats = [];
+  let msg = "";
+  let textref, sendref, backref, delref;
+
+  // Derive chats reactively from receiveMsgStore and currentContact
+  const chats = derived(
+    [receiveMsgStore, currentContact, sipFormData],
+    ([$receiveMsgStore, $currentContact, $sipFormData]) =>
+      $receiveMsgStore
+        .filter(
+          (m) =>
+            m.from.includes($currentContact.contact_id) ||
+            m.to.includes($currentContact.contact_id)
+        )
+        .map((m) => ({
+          id: m.messageId,
+          messagebody: m.content,
+          className: m.from.includes($sipFormData.phoneNum) ? "send" : "receive",
+          status: m.status,
+        }))
+  );
+
+  // Subscribe to chats for local updates
+  let localChats = [];
+  const unsubscribe = chats.subscribe((value) => {
+    localChats = value;
+  });
 
   const handleTextFocus = () => {
     textref?.focus();
   };
 
- const updateMessageTickUI = (messageId, status) => {
-  chats = chats.map(chat =>
-    chat.id === messageId ? { ...chat, status } : chat
-  );
-};
+  const updateMessageTickUI = (messageId, status) => {
+    // Update localChats first
+    localChats = localChats.map((chat) =>
+      chat.id === messageId ? { ...chat, status } : chat
+    );
 
+    // Also update the global receiveMsgStore
+    receiveMsgStore.update((messages) =>
+      messages.map((msg) =>
+        msg.messageId === messageId ? { ...msg, status } : msg
+      )
+    );
+  };
 
   const messageSend = () => {
     if (msg.trim() === "") {
@@ -31,23 +58,29 @@
       return;
     }
     const messageId = Date.now(); // unique ID
-    chats = [
-      ...chats,
-      {
-        id: messageId,
-        messagebody: msg,
-        className: "send",
-        status: "sent"
-      }
-    ];
-    sendMessage($currentContact.contact_id, msg, $sipFormData.phoneNum, messageId);
+
+    const newMsg = {
+      messageId,
+      content: msg,
+      from: $sipFormData.phoneNum,
+      to: $currentContact.contact_id,
+      status: "sent",
+    };
+
+    // Add message to global store (which updates UI via derived store)
+    addMessage(newMsg);
+
+    sendMessage($currentContact.contact_id, msg, $sipFormData.phoneNum);
+
     updateMessageTickUI(messageId, "sent");
+
     msg = "";
     handleTextFocus();
   };
 
   const delMessages = () => {
-    chats = [];
+    // Remove messages for current contact from global store
+    clearMessagesForContact($currentContact.contact_id);
   };
 
   const handleKeyDown = (e) => {
@@ -64,26 +97,13 @@
     }
   };
 
-  $: if ($receiveMsgStore) {
-  const messageId = Date.now() + Math.floor(Math.random() * 1000);
-  chats = [
-    ...chats,
-    {
-      id: messageId,
-      messagebody: $receiveMsgStore,
-      className: "receive",
-      status: "delivered"
-    }
-  ];
-  updateMessageTickUI(messageId, "delivered");
-  receiveMsgStore.set(""); // reset after handling
-}
-
-
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
     handleTextFocus();
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      unsubscribe();
+    };
   });
 </script>
 
@@ -103,7 +123,7 @@
         <h6 style="color: #fff;">{$currentContact.contact_id}</h6>
       </div>
     </div>
-    {#if chats.length > 0}
+    {#if localChats.length > 0}
       <button bind:this={delref} class="del" on:click={delMessages}>
         <i class="fa-solid fa-trash"></i>
       </button>
@@ -113,8 +133,8 @@
   <hr style="color: #999;" />
 
   <div class="chatwindow">
-    {#if chats.length > 0}
-      {#each chats as currentmsg (currentmsg.id)}
+    {#if localChats.length > 0}
+      {#each localChats as currentmsg (currentmsg.id)}
         <ChatBubble
           id={currentmsg.id}
           message={currentmsg.messagebody}
@@ -122,6 +142,8 @@
           className={currentmsg.className === "send" ? "sendBubble" : "receiveBubble"}
         />
       {/each}
+    {:else}
+      <p class="no-messages">No messages yet.</p>
     {/if}
   </div>
 
