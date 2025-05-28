@@ -3,11 +3,15 @@
   export let className = "";
   export let status = "";
   export let id = "";
+
+  let displayMessage = typeof message === "string" 
+    ? message 
+    : (message?.content || JSON.stringify(message));
 </script>
 
 <div class={className}>
-  <span>{message}</span>
-  <span>{typeof message === 'string' ? message : JSON.stringify(message)}</span>
+  <span>{displayMessage}</span>
+
 
 
   {#if className === "sendBubble"}
