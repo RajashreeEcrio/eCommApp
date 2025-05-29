@@ -1,12 +1,8 @@
-import { receiveMsgStore, readReceiptStore } from "../Store/store";
+import { receiveMsg, messageStatusMap, messages } from "../Store/store";
 
 let ua;
 const socket = new JsSIP.WebSocketInterface("ws://192.168.1.71:5066");
 
-// Generate unique ID
-const generateId = () => Math.random().toString(36).substring(2, 15);
-
-// SIP Registration
 export const registerSIP = (data) => {
   return new Promise((resolve, reject) => {
     const configuration = {
@@ -16,7 +12,6 @@ export const registerSIP = (data) => {
     };
 
     ua = new JsSIP.UA(configuration);
-    initializeReceive(ua);
 
     ua.on("registered", () => {
       console.log("SIP registered");
@@ -28,35 +23,34 @@ export const registerSIP = (data) => {
       reject(false);
     });
 
+    initializeReceive(ua);
     ua.start();
   });
 };
 
-// Send CPIM message with delivery and read receipt request
-export const sendMessage = (to, message, senderUri) => {
-  if (!ua || !ua.isRegistered()) {
-    console.error("SIP UA not initialized or not registered");
+const generateContributionId = () => {
+  return Math.random().toString(36).substring(2, 15);
+};
+
+export const sendMessage = (to, message, senderUri, msgId) => {
+  if (!ua) {
+    console.log("SIP UA not initialized");
     return;
   }
 
   const now = new Date().toISOString();
-  const messageId = generateId();
-  const contributionId = generateId();
-
-  const normalizeUri = (uri) => uri.replace(/^sip:/, "");
-  const fromUri = normalizeUri(senderUri);
-  const toUri = normalizeUri(to);
+  const contributionId = msgId || generateContributionId();
 
   const cpimBody =
-    `From: <sip:${fromUri}@ecrio.com>\r\n` +
-    `To: <sip:${toUri}@ecrio.com>\r\n` +
+    `From: <sip:${senderUri}@ecrio.com>\r\n` +
+    `To: <sip:${to}@ecrio.com>\r\n` +
     `DateTime: ${now}\r\n` +
     `NS: imdn <urn:ietf:params:imdn>\r\n` +
-    `imdn.Message-ID: ${messageId}\r\n` +
-    `imdn.Disposition-Notification: positive-delivery, display\r\n` +
+    `imdn.Message-ID: ${contributionId}\r\n` +
+    `imdn.Disposition-Notification: positive-delivery,display\r\n` +
     `\r\n` +
     `Content-Type: text/plain;charset=UTF-8\r\n` +
-    `Content-Length: ${new TextEncoder().encode(`TEXT:::-:::${message}`).length}\r\n` +
+    `Content-Length: ${message.length + 11}\r\n` +
     `\r\n` +
     `TEXT:::-:::${message}`;
 
@@ -64,38 +58,70 @@ export const sendMessage = (to, message, senderUri) => {
     contentType: "message/cpim",
     extraHeaders: [
       'Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg";require;explicit',
-      `P-Preferred-Identity: <sip:${fromUri}@ecrio.com>`,
+      `P-Preferred-Identity: <sip:${senderUri}@ecrio.com>`,
       'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.1.71:9090;lr>",
+      "Route: <sip:192.168.172.50:9090;lr>",
       `Conversation-ID: ${contributionId}`,
       `Contribution-ID: ${contributionId}`,
     ],
-    eventHandlers: {
-      succeeded: (e) => console.log("Message sent successfully", e),
-      failed: (e) => console.error("Message sending failed", e),
-    },
   };
 
-  ua.sendMessage(`sip:${toUri}@ecrio.com`, cpimBody, messageOptions);
+  const target = `sip:${to}@ecrio.com`;
+  const sentMsg = ua.sendMessage(target, cpimBody, messageOptions);
 
-  receiveMsgStore.update((msgs) => {
-    const list = Array.isArray(msgs) ? msgs : [];
-    return [
-      ...list,
-      {
-        from: `sip:${fromUri}@ecrio.com`,
-        to: `sip:${toUri}@ecrio.com`,
-        content: message,
-        datetime: now,
-        messageId,
-        status: "sent",
-      },
-    ];
+  messageStatusMap.update((map) => ({
+    ...map,
+    [contributionId]: "sent",
+  }));
+
+  messages.update((msgs) => [
+    ...msgs,
+    {
+      id: contributionId,
+      text: message,
+      sender: senderUri,
+      timestamp: now,
+    },
+  ]);
+
+  sentMsg.on("succeeded", () => {
+    messageStatusMap.update((map) => ({
+      ...map,
+      [contributionId]: "delivered",
+    }));
+
+    setTimeout(() => {
+      messageStatusMap.update((map) => ({
+        ...map,
+        [contributionId]: "read",
+      }));
+    }, 2000);
   });
+
+  sentMsg.on("failed", (error) => {
+    console.error("Message failed to send:", error);
+    messageStatusMap.update((map) => ({
+      ...map,
+      [contributionId]: "failed",
+    }));
+  });
+
+  console.log("Message sent:", contributionId);
 };
 
-// Initialize receiver logic
+const parseCpimBody = (body) => {
+  const contentMatch = body.match(/TEXT:::-:::(.*)/s);
+  const idMatch = body.match(/imdn.Message-ID:\s*(.+)/);
+  const dispositionMatch = body.match(/Disposition:\s*(.+)/);
+
+  return {
+    content: contentMatch ? contentMatch[1].trim() : null,
+    msgId: idMatch ? idMatch[1].trim() : null,
+    disposition: dispositionMatch ? dispositionMatch[1].trim() : null,
+  };
+};
+
 const initializeReceive = (uaInstance) => {
   uaInstance.on("newMessage", (e) => {
     if (e.originator !== "remote") return;
@@ -103,124 +129,96 @@ const initializeReceive = (uaInstance) => {
     const rawBody = e.request.body;
     const contentType = e.request.getHeader("Content-Type");
 
-    if (contentType?.includes("message/cpim")) {
-      const parsed = parseCpimBody(rawBody);
-      if (!parsed) return;
+    if (!rawBody || !contentType) return;
 
-      // Ignore messages from self to avoid duplicate display
-      const ownUri = uaInstance.configuration.uri.toString().toLowerCase();
-if (parsed.from.toLowerCase() === ownUri) {
-  console.log("Ignoring message from self");
-  return;
-}
+    // Handle IMDN receipts
+    if (contentType.includes("message/imdn+xml")) {
+      const msgIdMatch = rawBody.match(/<imdn:message-id>([^<]+)<\/imdn:message-id>/i);
+      const statusMatch =
+        rawBody.match(/<imdn:status>[^<]*<imdn:displayed\/?>/i) ||
+        rawBody.match(/<imdn:status>[^<]*<imdn:delivered\/?>/i);
 
+      const messageId = msgIdMatch ? msgIdMatch[1].trim() : null;
 
-      if (parsed.imdnType === "positive-delivery" || parsed.imdnType === "display") {
-        readReceiptStore.update((receipts) => {
-          const list = Array.isArray(receipts) ? receipts : [];
-          return [...list, parsed];
+      if (messageId && statusMatch) {
+        messageStatusMap.update((map) => {
+          if (statusMatch[0].includes("displayed")) {
+            map[messageId] = "read";
+          } else if (statusMatch[0].includes("delivered")) {
+            map[messageId] = "delivered";
+          }
+          return { ...map };
         });
 
-        receiveMsgStore.update((msgs) => {
-          const list = Array.isArray(msgs) ? msgs : [];
-          return list.map((msg) =>
-            msg.messageId === parsed.messageId &&
-            msg.from === parsed.to &&
-            msg.to === parsed.from
-              ? { ...msg, status: parsed.imdnType }
-              : msg
-          );
-        });
-
-        console.log(`Received ${parsed.imdnType} receipt:`, parsed);
-        return;
+        console.log(`IMDN receipt: ${statusMatch[0]} for message ${messageId}`);
       }
-      
+    }
 
-      // New message received
-      receiveMsgStore.update((msgs) => {
-        const list = Array.isArray(msgs) ? msgs : [];
-        return [
-          ...list,
+    // Handle CPIM message
+    else if (contentType.includes("message/cpim")) {
+      const parsed = parseCpimBody(rawBody);
+
+      if (parsed.disposition) {
+        if (parsed.disposition.includes("positive-delivery")) {
+          messageStatusMap.update((map) => {
+            map[parsed.msgId] = "delivered";
+            return { ...map };
+          });
+        } else if (parsed.disposition.includes("display")) {
+          messageStatusMap.update((map) => {
+            map[parsed.msgId] = "read";
+            return { ...map };
+          });
+        }
+      } else if (parsed.content) {
+        receiveMsg.set(parsed.content);
+        messages.update((msgs) => [
+          ...msgs,
           {
-            from: parsed.from,
-            to: parsed.to,
-            content: parsed.content,
-            datetime: parsed.datetime,
-            messageId: parsed.messageId,
-            status: "received",
+            id: parsed.msgId,
+            text: parsed.content,
+            sender: e.request.from.uri,
+            timestamp: new Date().toISOString(),
           },
-        ];
-      });
+        ]);
 
-      console.log("New message received:", parsed);
+        // Send read receipt
+        const now = new Date().toISOString();
+        const readReceipt =
+          `From: <${e.request.from.uri}>\r\n` +
+          `To: <${ua.configuration.uri}>\r\n` +
+          `DateTime: ${now}\r\n` +
+          `NS: imdn <urn:ietf:params:imdn>\r\n` +
+          `imdn.Message-ID: ${parsed.msgId}\r\n` +
+          `Disposition: display\r\n\r\n`;
 
-      // Auto-send receipts
-      sendReceipt(parsed.from, parsed.messageId, "positive-delivery");
-      setTimeout(() => {
-        sendReceipt(parsed.from, parsed.messageId, "display");
-      }, 2000);
+        ua.sendMessage(e.request.from.uri, readReceipt, {
+          contentType: "message/cpim",
+        });
+      }
+    }
+
+    // Handle plain MESSAGE (fallback)
+    else {
+      const message = {
+        sender: e.request.from.uri,
+        content: rawBody,
+      };
+
+      receiveMsg.set(message.content);
+      messages.update((msgs) => [
+        ...msgs,
+        {
+          id: generateContributionId(),
+          text: message.content,
+          sender: message.sender,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
     }
   });
 };
 
-// CPIM Parser
-const parseCpimBody = (body) => {
-  try {
-    const from = (body.match(/^From:\s*<(sip:[^>]+)>/m)?.[1] || "").trim();
-    const to = (body.match(/^To:\s*<(sip:[^>]+)>/m)?.[1] || "").trim();
-    const datetime = (body.match(/^DateTime:\s*(.+)$/m)?.[1] || "").trim();
-    const messageId = (body.match(/^imdn.Message-ID:\s*(.+)$/m)?.[1] || "").trim();
-    const disposition = (body.match(/^imdn.Disposition-Notification:\s*(.+)$/m)?.[1] || "").trim();
-    const originalMessageId = (body.match(/^imdn.Original-Message-ID:\s*(.+)$/m)?.[1] || "").trim();
-
-    const split = body.split(/\r?\n\r?\n/);
-    const content = split.length > 2 ? split[2].trim().replace(/^TEXT:::-:::/, "") : "";
-
-    const imdnType =
-      disposition.includes("positive-delivery") && !content ? "positive-delivery" :
-      disposition.includes("display") && !content ? "display" :
-      null;
-
-    return { from, to, datetime, content, messageId, originalMessageId, imdnType };
-  } catch (err) {
-    console.error("Failed to parse CPIM:", err, "\nRaw Body:", body);
-    return null;
-  }
-};
-
-// Send IMDN receipt
-const sendReceipt = (to, originalMessageId, type) => {
-  const now = new Date().toISOString();
-  const messageId = generateId();
-  const from = ua.configuration.uri;
-
-  const normalizeUri = (uri) => uri.replace(/^sip:/, "");
-  const fromUri = normalizeUri(from);
-  const toUri = normalizeUri(to);
-
-  const cpimBody =
-    `From: <sip:${fromUri}@ecrio.com>\r\n` +
-    `To: <sip:${toUri}@ecrio.com>\r\n` +
-    `DateTime: ${now}\r\n` +
-    `NS: imdn <urn:ietf:params:imdn>\r\n` +
-    `imdn.Message-ID: ${messageId}\r\n` +
-    `imdn.Original-Message-ID: ${originalMessageId}\r\n` +
-    `imdn.Disposition-Notification: ${type}\r\n` +
-    `\r\n`;
-
-  const messageOptions = {
-    contentType: "message/cpim",
-    extraHeaders: [
-      `P-Preferred-Identity: <sip:${fromUri}@ecrio.com>`,
-      "Request-Disposition: no-fork",
-      "Route: <sip:192.168.1.71:9090;lr>",
-    ],
-    eventHandlers: {
-      succeeded: () => console.log(`${type} receipt sent`),
-      failed: (e) => console.error(`Failed to send ${type} receipt`, e),
-    },
-  };
-
-  ua.sendMessage(`sip:${toUri}@ecrio.com`, cpimBody, messageOptions);
+export const isSIPRegistered = () => {
+  return ua ? ua.isRegistered() : false;
 };

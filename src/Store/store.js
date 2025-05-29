@@ -1,6 +1,9 @@
 import { writable } from "svelte/store";
 
 export let currentContact = writable({});
+export const messages = writable([]);
+export const receiveMsg = writable(null);
+export const messageStatusMap = writable({});
 export let sipFormData = writable({
   uname: "",
   password: "",
