@@ -7,6 +7,8 @@ import terser from '@rollup/plugin-terser';
 import resolve from '@rollup/plugin-node-resolve';
 import livereload from 'rollup-plugin-livereload';
 import css from 'rollup-plugin-css-only';
+import nodePolyfills from 'rollup-plugin-node-polyfills';
+import json from '@rollup/plugin-json';
 
 const production = !process.env.ROLLUP_WATCH;
 
@@ -40,6 +42,7 @@ export default {
 		file: 'public/build/bundle.js'
 	},
 	plugins: [
+		json(),
 		svelte({
 			compilerOptions: {
 				dev: !production
@@ -47,11 +50,19 @@ export default {
 		}),
 		css({ output: 'bundle.css' }),
 		resolve({
-			browser: true,
-			dedupe: ['svelte'],
-			exportConditions: ['svelte']
-		}),
-		commonjs(),
+		browser: true,
+		preferBuiltins: false,
+		dedupe: ['svelte'],
+		exportConditions: ['svelte']
+	}),
+
+	// 2. Add node polyfills before commonjs
+	nodePolyfills(),
+
+	// 3. Convert CommonJS modules to ESModules
+	commonjs({
+		include: /node_modules/
+	}),
 		babel({
 			extensions: ['.js', '.mjs', '.html', '.svelte'],
 			babelHelpers: 'bundled',

@@ -2,7 +2,7 @@
   export let type;
   export let value='';
   export let placeholder;
-  export let onInput;
+  export let onInput = () => {};
   export let className;
   export let ref;
 </script>

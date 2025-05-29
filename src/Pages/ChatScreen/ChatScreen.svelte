@@ -3,161 +3,130 @@
   import { push } from "svelte-spa-router";
   import ChatBubble from "../../Components/ChatBubble/ChatBubble.svelte";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
-  import { currentContact, receiveMsgStore, sipFormData, addMessage, clearMessagesForContact } from "../../Store/store";
+  import {
+    currentContact,
+    receiveMsgStore,
+    sipFormData,
+    addMessage,
+    clearMessagesForContact,
+  } from "../../Store/store";
   import { sendMessage } from "../../JsSIP/sip";
-  import { derived } from "svelte/store";
+  import { get } from "svelte/store";
+   import { messages,messageStatusMap} from '../../Store/store.js';
 
-  let msg = "";
-  let textref, sendref, backref, delref;
+  let message = "";
+   
+  let uaInitialized = false;
 
-  // Derive chats reactively from receiveMsgStore and currentContact
-  const chats = derived(
-    [receiveMsgStore, currentContact, sipFormData],
-    ([$receiveMsgStore, $currentContact, $sipFormData]) =>
-      $receiveMsgStore
-        .filter(
-          (m) =>
-            m.from.includes($currentContact.contact_id) ||
-            m.to.includes($currentContact.contact_id)
-        )
-        .map((m) => ({
-          id: m.messageId,
-          messagebody: m.content,
-          className: m.from.includes($sipFormData.phoneNum) ? "send" : "receive",
-          status: m.status,
-        }))
-  );
-
-  // Subscribe to chats for local updates
-  let localChats = [];
-  const unsubscribe = chats.subscribe((value) => {
-    localChats = value;
+  // Register SIP on component mount
+  onMount(async () => {
+    try {
+      const data = get(sipFormData);
+      if (!uaInitialized) {
+        await import("../../JsSIP/sip.js").then(async ({ registerSIP }) => {
+          await registerSIP(data);
+          uaInitialized = true;
+          console.log("SIP registered in ChatScreen");
+        });
+      }
+    } catch (error) {
+      console.error("Error registering SIP:", error);
+    }
   });
 
-  const handleTextFocus = () => {
-    textref?.focus();
-  };
+  // Send message handler
+  const handleSendMessage = () => {
+    const contact = get(currentContact);
+    const data = get(sipFormData);
 
-  const updateMessageTickUI = (messageId, status) => {
-    // Update localChats first
-    localChats = localChats.map((chat) =>
-      chat.id === messageId ? { ...chat, status } : chat
-    );
-
-    // Also update the global receiveMsgStore
-    receiveMsgStore.update((messages) =>
-      messages.map((msg) =>
-        msg.messageId === messageId ? { ...msg, status } : msg
-      )
-    );
-  };
-
-  const messageSend = () => {
-    if (msg.trim() === "") {
-      alert("Message can't be empty");
+    if (!contact || !contact.phone) {
+      alert("Select a contact to send a message");
       return;
     }
-    const messageId = Date.now(); // unique ID
 
-    const newMsg = {
-      messageId,
-      content: msg,
-      from: $sipFormData.phoneNum,
-      to: $currentContact.contact_id,
-      status: "sent",
-    };
+    if (message.trim() === "") {
+      alert("Message cannot be empty");
+      return;
+    }
 
-    // Add message to global store (which updates UI via derived store)
-    addMessage(newMsg);
-
-    sendMessage($currentContact.contact_id, msg, $sipFormData.phoneNum);
-
-    updateMessageTickUI(messageId, "sent");
-
-    msg = "";
-    handleTextFocus();
+    sendMessage(contact.phone, message, data.phoneNum);
+    addMessage({
+      id: Math.random().toString(36).substring(2, 15),
+      sender: data.phoneNum,
+      text: message,
+      timestamp: new Date().toISOString(),
+    });
+    message = "";
   };
 
-  const delMessages = () => {
-    // Remove messages for current contact from global store
-    clearMessagesForContact($currentContact.contact_id);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && sendref) {
-      sendref.click();
-    } else if (e.key === "SoftLeft" && backref) {
-      backref.click();
-    } else if (e.key === "SoftRight") {
-      if (msg.trim() !== "") {
-        msg = msg.slice(0, -1);
-      }
-    } else if (e.key === "ArrowUp" && delref) {
-      delref.click();
+  // Clear chat handler
+  const clearChat = () => {
+    const contact = get(currentContact);
+    if (contact) {
+      clearMessagesForContact(contact.phone);
     }
   };
 
-  onMount(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    handleTextFocus();
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      unsubscribe();
-    };
-  });
+  // Go back handler
+  const goBack = () => {
+    push("/contacts");
+  };
 </script>
 
-<div class="screen">
-  <div class="header">
-    <div class="leftbox">
-      <button
-        bind:this={backref}
-        class="back"
-        tabIndex="0"
-        on:click={() => push("/contacts")}
-      >
-        <i class="fa-solid fa-arrow-left"></i>
-      </button>
-      <div class="uname">
-        <h4 style="color: #fff;">{$currentContact.contact_name}</h4>
-        <h6 style="color: #fff;">{$currentContact.contact_id}</h6>
-      </div>
-    </div>
-    {#if localChats.length > 0}
-      <button bind:this={delref} class="del" on:click={delMessages}>
-        <i class="fa-solid fa-trash"></i>
-      </button>
-    {/if}
+<style>
+  .chatScreen {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background-color: #f0f0f0;
+  }
+  .chatHeader {
+    padding: 10px;
+    background-color: #075e54;
+    color: white;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .chatMessages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+  }
+  .chatInputArea {
+    padding: 10px;
+    background-color: #ddd;
+    display: flex;
+    gap: 10px;
+  }
+</style>
+
+<div class="chatScreen">
+  <div class="chatHeader">
+    <button on:click={goBack}>Back</button>
+    <span>{get(currentContact)?.name || "No Contact Selected"}</span>
+    <button on:click={clearChat}>Clear</button>
   </div>
 
-  <hr style="color: #999;" />
-
-  <div class="chatwindow">
-    {#if localChats.length > 0}
-      {#each localChats as currentmsg (currentmsg.id)}
-        <ChatBubble
-          id={currentmsg.id}
-          message={currentmsg.messagebody}
-          status={currentmsg.status}
-          className={currentmsg.className === "send" ? "sendBubble" : "receiveBubble"}
-        />
-      {/each}
-    {:else}
-      <p class="no-messages">No messages yet.</p>
-    {/if}
+  <div class="chatMessages">
+    {#each $messages as msg (msg.id)}
+      <ChatBubble
+        className={msg.sender === get(sipFormData).phoneNum ? "sendBubble" : "receiveBubble"}
+        message={msg.text}
+        status={$messageStatusMap[msg.id]}
+      />
+    {/each}
   </div>
 
-  <div class="box">
+  <div class="chatInputArea">
     <TextBox
-      type="text"
-      placeholder="Message..."
-      className="textbox"
-      onInput={(e) => (msg = e.target.value)}
-      value={msg}
-      bind:ref={textref}
+      bind:value={message}
+      placeholder="Type a message..."
+      on:keypress={(e) => e.key === "Enter" && handleSendMessage()}
     />
-    <button bind:this={sendref} on:click={messageSend} class="sendBtn">
-      <i class="fa-solid fa-paper-plane"></i>
-    </button>
+    <button on:click={handleSendMessage}>Send</button>
   </div>
 </div>
