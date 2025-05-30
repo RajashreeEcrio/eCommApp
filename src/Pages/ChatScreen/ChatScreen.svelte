@@ -16,15 +16,13 @@
   let textref, sendref, backref, delref;
   let chats = [];
 
-  // reactive subscription to the statuses map
+  // Reactive subscription to message statuses
   $: statuses = $messageStatusMap;
 
+  // Focus text input box
   const handleTextFocus = () => {
-    if (textref) {
-      textref.focus();
-    } else {
-      console.warn("textref is null, cannot focus");
-    }
+    if (textref) textref.focus();
+    else console.warn("textref is null, cannot focus");
   };
 
   const messageSend = () => {
@@ -33,22 +31,24 @@
       return handleTextFocus();
     }
 
-    // sendMessage now returns the generated contributionId
+    // sendMessage returns messageId for tracking read receipts
     const messageId = sendMessage(
       $currentContact.contact_id,
       msg,
       $sipFormData.phoneNum
     );
 
-    // push to local chat array, track messageId
+    // Add sent message to local chat list
     chats = [
       ...chats,
       {
         messagebody: msg,
         className: "send",
-        messageId
+        messageId,
+         status: 'sent'
       }
     ];
+
     msg = "";
     handleTextFocus();
   };
@@ -64,33 +64,46 @@
     else if (e.key === "ArrowUp") delref.click();
   };
 
-  // when a remote message arrives, append it
-  receiveMsg.subscribe((value) => {
+  // Append received messages when receiveMsg store updates
+  $: if ($receiveMsg) {
+    // Avoid duplicate received messages
     if (
-      value &&
-      !chats.some(
-        (c) =>
-          c.messagebody === value &&
-          c.className === "send"
-      )
+      !$receiveMsg.trim() ||
+      chats.some(c => c.messagebody === $receiveMsg && c.className === "receive")
     ) {
+      // do nothing
+    } else {
       chats = [
         ...chats,
         {
-          messagebody: value,
+          messagebody: $receiveMsg,
           className: "receive",
-          messageId: null
+          messageId: null,
+          status: "received"
         }
       ];
     }
-  });
+  }
 
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
-    // Focus the textbox once mounted
     handleTextFocus();
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
+
+  // Watch for messageStatusMap changes and update status in chats
+$: {
+  chats = chats.map(chat => {
+    if (chat.className === "send" && chat.messageId && statuses[chat.messageId]) {
+      return {
+        ...chat,
+        status: statuses[chat.messageId]
+      };
+    }
+    return chat;
+  });
+}
+
 </script>
 
 <div class="screen">
@@ -119,7 +132,7 @@
       <ChatBubble
         message={currentmsg.messagebody}
         className={currentmsg.className === "send" ? "sendBubble" : "receiveBubble"}
-        status={currentmsg.className === "send" ? statuses[currentmsg.messageId] || "sent" : ""}
+        status={currentmsg.className === "send" ? (statuses[currentmsg.messageId] || "sent") : ""}
       />
     {/each}
   </div>

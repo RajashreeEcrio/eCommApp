@@ -16,18 +16,30 @@ export let sipFormData = writable({
 // { from, to, content, datetime, messageId, status: 'sent' | 'delivered' | 'read' }
 export let receiveMsgStore = writable([]);
 
-// Helper function to add a new message to the store
+// Helper function to add a new message to the store (avoid duplicates)
 export const addMessage = (msg) => {
-  receiveMsgStore.update((messages) => [...messages, msg]);
+  receiveMsgStore.update((messages) => {
+    if (messages.find((m) => m.messageId === msg.messageId)) {
+      return messages; // message already exists
+    }
+    return [...messages, msg];
+  });
 };
 
 // Helper function to update status of a message by messageId
+// Returns true if update happened, false if messageId not found
 export const updateMessageStatus = (messageId, status) => {
+  let updated = false;
   receiveMsgStore.update((messages) =>
-    messages.map((msg) =>
-      msg.messageId === messageId ? { ...msg, status } : msg
-    )
+    messages.map((msg) => {
+      if (msg.messageId === messageId) {
+        updated = true;
+        return { ...msg, status };
+      }
+      return msg;
+    })
   );
+  return updated;
 };
 
 // Helper function to clear all messages related to a particular contact (either from or to)

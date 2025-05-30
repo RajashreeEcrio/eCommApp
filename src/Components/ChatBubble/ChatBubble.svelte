@@ -5,19 +5,21 @@
 </script>
 
 <div class={"chat-bubble " + className}>
-  <span>{message}</span>
+  <div class="content">
+    <span class="msg">{message}</span>
 
-  {#if className === "sendBubble" && status}
-    <span class="tick">
-      {#if status === "sent"}
-        ✓
-      {:else if status === "delivered"}
-        ✓✓
-      {:else if status === "read"}
-        <span class="blue-ticks">✓✓</span>
-      {/if}
-    </span>
-  {/if}
+    {#if className === "sendBubble" && status}
+      <span class="tick">
+        {#if status === "sent"}
+          ✓
+        {:else if status === "delivered"}
+          ✓✓
+        {:else if status === "read"}
+          <span class="blue-ticks">✓✓</span>
+        {/if}
+      </span>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -28,6 +30,12 @@
     border-radius: 12px;
     font-size: 14px;
     word-wrap: break-word;
+    display: flex;
+    flex-direction: column;
+    align-self: flex-start;
+  }
+
+  .content {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -50,11 +58,15 @@
 
   .tick {
     font-size: 12px;
-    margin-left: 6px;
     opacity: 0.8;
+    white-space: nowrap;
   }
 
   .blue-ticks {
     color: #00bfff;
+  }
+
+  .msg {
+    word-break: break-word;
   }
 </style>
