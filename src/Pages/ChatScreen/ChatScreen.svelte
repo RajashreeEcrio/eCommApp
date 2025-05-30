@@ -5,105 +5,94 @@
   import TextBox from "../../Components/TextBox/TextBox.svelte";
   import {
     currentContact,
-    receiveMsg,
+    messages,
     sipFormData,
-    messageStatusMap
+    messageStatusMap,
+    addMessage,
   } from "../../Store/store";
   import { sendMessage } from "../../JsSIP/sip";
   import "./style.css";
 
   let msg = "";
   let textref, sendref, backref, delref;
-  let chats = [];
 
   // Reactive subscription to message statuses
   $: statuses = $messageStatusMap;
 
-  // Focus text input box
+  // Filter and format messages for current chat contact
+  $: chats = $messages
+    .filter(
+      (m) =>
+        (m.from === $currentContact.contact_id && m.to === $sipFormData.phoneNum) ||
+        (m.to === $currentContact.contact_id && m.from === $sipFormData.phoneNum)
+    )
+    .map((m) => {
+      const isSend = m.from === $sipFormData.phoneNum;
+      return {
+        messagebody: m.content,
+        className: isSend ? "send" : "receive",
+        messageId: m.messageId,
+        status: isSend ? (statuses[m.messageId] || "sent") : "received",
+      };
+    });
+
   const handleTextFocus = () => {
     if (textref) textref.focus();
-    else console.warn("textref is null, cannot focus");
   };
 
+  const generateMessageId = () => `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+  // Send message via SIP and update local store
   const messageSend = () => {
     if (!msg.trim()) {
       alert("Message can't be empty");
       return handleTextFocus();
     }
 
-    // sendMessage returns messageId for tracking read receipts
     const messageId = sendMessage(
       $currentContact.contact_id,
       msg,
       $sipFormData.phoneNum
-    );
+    ) || generateMessageId();
 
-    // Add sent message to local chat list
-    chats = [
-      ...chats,
-      {
-        messagebody: msg,
-        className: "send",
-        messageId,
-         status: 'sent'
-      }
-    ];
+    addMessage({
+      from: $sipFormData.phoneNum,
+      to: $currentContact.contact_id,
+      content: msg,
+      messageId,
+      status: "sent",
+    });
 
     msg = "";
     handleTextFocus();
   };
 
+  // Delete all messages in the current conversation
   const delMessages = () => {
-    chats = [];
+    messages.update((msgs) =>
+      msgs.filter(
+        (m) =>
+          !(
+            (m.from === $currentContact.contact_id && m.to === $sipFormData.phoneNum) ||
+            (m.to === $currentContact.contact_id && m.from === $sipFormData.phoneNum)
+          )
+      )
+    );
   };
 
+  // Keyboard shortcuts and soft key handling
   const handleKeyDown = (e) => {
-    if (e.key === "Enter") sendref.click();
-    else if (e.key === "SoftLeft") backref.click();
+    if (e.key === "Enter") messageSend();
+    else if (e.key === "SoftLeft") backref?.click();
     else if (e.key === "SoftRight" && msg) msg = msg.slice(0, -1);
-    else if (e.key === "ArrowUp") delref.click();
+    else if (e.key === "ArrowUp") delref?.click();
   };
-
-  // Append received messages when receiveMsg store updates
-  $: if ($receiveMsg) {
-    // Avoid duplicate received messages
-    if (
-      !$receiveMsg.trim() ||
-      chats.some(c => c.messagebody === $receiveMsg && c.className === "receive")
-    ) {
-      // do nothing
-    } else {
-      chats = [
-        ...chats,
-        {
-          messagebody: $receiveMsg,
-          className: "receive",
-          messageId: null,
-          status: "received"
-        }
-      ];
-    }
-  }
 
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
     handleTextFocus();
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
-
-  // Watch for messageStatusMap changes and update status in chats
-$: {
-  chats = chats.map(chat => {
-    if (chat.className === "send" && chat.messageId && statuses[chat.messageId]) {
-      return {
-        ...chat,
-        status: statuses[chat.messageId]
-      };
-    }
-    return chat;
-  });
-}
-
 </script>
 
 <div class="screen">

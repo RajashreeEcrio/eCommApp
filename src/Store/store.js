@@ -1,10 +1,14 @@
 import { writable } from "svelte/store";
 
-export let currentContact = writable({});
+// Current active contact
+export const currentContact = writable({});
+
+// Store all messages (sent and received)
+// Each message: { from, to, content, datetime, messageId, status }
 export const messages = writable([]);
-export const receiveMsg = writable(null);
-export const messageStatusMap = writable({});
-export let sipFormData = writable({
+
+// User SIP login form data
+export const sipFormData = writable({
   uname: "",
   password: "",
   phoneNum: "",
@@ -12,26 +16,25 @@ export let sipFormData = writable({
   port: "",
 });
 
-// Store array of message objects
-// { from, to, content, datetime, messageId, status: 'sent' | 'delivered' | 'read' }
-export let receiveMsgStore = writable([]);
+// Map messageId → status for quick status lookup (optional)
+export const messageStatusMap = writable({});
 
-// Helper function to add a new message to the store (avoid duplicates)
+// Add a new message, avoid duplicates by messageId
 export const addMessage = (msg) => {
-  receiveMsgStore.update((messages) => {
-    if (messages.find((m) => m.messageId === msg.messageId)) {
-      return messages; // message already exists
+  messages.update((msgs) => {
+    if (msgs.find((m) => m.messageId === msg.messageId)) {
+      return msgs;
     }
-    return [...messages, msg];
+    return [...msgs, msg];
   });
 };
 
-// Helper function to update status of a message by messageId
-// Returns true if update happened, false if messageId not found
+// Update the status of a message by messageId
+// Also sync status in messageStatusMap
 export const updateMessageStatus = (messageId, status) => {
   let updated = false;
-  receiveMsgStore.update((messages) =>
-    messages.map((msg) => {
+  messages.update((msgs) =>
+    msgs.map((msg) => {
       if (msg.messageId === messageId) {
         updated = true;
         return { ...msg, status };
@@ -39,16 +42,24 @@ export const updateMessageStatus = (messageId, status) => {
       return msg;
     })
   );
+
+  if (updated) {
+    messageStatusMap.update((map) => {
+      const newMap = { ...map, [messageId]: status };
+      console.log("✅ IMDN RECEIPT RECEIVED: Status updated", newMap);
+      return newMap;
+    });
+  } else {
+    console.warn("⚠️ IMDN received but messageId not found:", messageId);
+  }
+
   return updated;
 };
 
-// Helper function to clear all messages related to a particular contact (either from or to)
+
+// Clear all messages related to a specific contactId (either sender or receiver)
 export const clearMessagesForContact = (contactId) => {
-  receiveMsgStore.update((messages) =>
-    messages.filter(
-      (msg) => !msg.from.includes(contactId) && !msg.to.includes(contactId)
-    )
+  messages.update((msgs) =>
+    msgs.filter((msg) => msg.from !== contactId && msg.to !== contactId)
   );
 };
-
-export const readReceiptStore = writable([]);
