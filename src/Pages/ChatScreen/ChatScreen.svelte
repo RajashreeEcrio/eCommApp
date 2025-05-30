@@ -5,128 +5,134 @@
   import TextBox from "../../Components/TextBox/TextBox.svelte";
   import {
     currentContact,
-    receiveMsgStore,
+    receiveMsg,
     sipFormData,
-    addMessage,
-    clearMessagesForContact,
+    messageStatusMap
   } from "../../Store/store";
   import { sendMessage } from "../../JsSIP/sip";
-  import { get } from "svelte/store";
-   import { messages,messageStatusMap} from '../../Store/store.js';
+  import "./style.css";
 
-  let message = "";
-   
-  let uaInitialized = false;
+  let msg = "";
+  let textref, sendref, backref, delref;
+  let chats = [];
 
-  // Register SIP on component mount
-  onMount(async () => {
-    try {
-      const data = get(sipFormData);
-      if (!uaInitialized) {
-        await import("../../JsSIP/sip.js").then(async ({ registerSIP }) => {
-          await registerSIP(data);
-          uaInitialized = true;
-          console.log("SIP registered in ChatScreen");
-        });
+  // reactive subscription to the statuses map
+  $: statuses = $messageStatusMap;
+
+  const handleTextFocus = () => {
+    if (textref) {
+      textref.focus();
+    } else {
+      console.warn("textref is null, cannot focus");
+    }
+  };
+
+  const messageSend = () => {
+    if (!msg.trim()) {
+      alert("Message can't be empty");
+      return handleTextFocus();
+    }
+
+    // sendMessage now returns the generated contributionId
+    const messageId = sendMessage(
+      $currentContact.contact_id,
+      msg,
+      $sipFormData.phoneNum
+    );
+
+    // push to local chat array, track messageId
+    chats = [
+      ...chats,
+      {
+        messagebody: msg,
+        className: "send",
+        messageId
       }
-    } catch (error) {
-      console.error("Error registering SIP:", error);
+    ];
+    msg = "";
+    handleTextFocus();
+  };
+
+  const delMessages = () => {
+    chats = [];
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") sendref.click();
+    else if (e.key === "SoftLeft") backref.click();
+    else if (e.key === "SoftRight" && msg) msg = msg.slice(0, -1);
+    else if (e.key === "ArrowUp") delref.click();
+  };
+
+  // when a remote message arrives, append it
+  receiveMsg.subscribe((value) => {
+    if (
+      value &&
+      !chats.some(
+        (c) =>
+          c.messagebody === value &&
+          c.className === "send"
+      )
+    ) {
+      chats = [
+        ...chats,
+        {
+          messagebody: value,
+          className: "receive",
+          messageId: null
+        }
+      ];
     }
   });
 
-  // Send message handler
-  const handleSendMessage = () => {
-    const contact = get(currentContact);
-    const data = get(sipFormData);
-
-    if (!contact || !contact.phone) {
-      alert("Select a contact to send a message");
-      return;
-    }
-
-    if (message.trim() === "") {
-      alert("Message cannot be empty");
-      return;
-    }
-
-    sendMessage(contact.phone, message, data.phoneNum);
-    addMessage({
-      id: Math.random().toString(36).substring(2, 15),
-      sender: data.phoneNum,
-      text: message,
-      timestamp: new Date().toISOString(),
-    });
-    message = "";
-  };
-
-  // Clear chat handler
-  const clearChat = () => {
-    const contact = get(currentContact);
-    if (contact) {
-      clearMessagesForContact(contact.phone);
-    }
-  };
-
-  // Go back handler
-  const goBack = () => {
-    push("/contacts");
-  };
+  onMount(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    // Focus the textbox once mounted
+    handleTextFocus();
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
 </script>
 
-<style>
-  .chatScreen {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    background-color: #f0f0f0;
-  }
-  .chatHeader {
-    padding: 10px;
-    background-color: #075e54;
-    color: white;
-    font-weight: bold;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .chatMessages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-  }
-  .chatInputArea {
-    padding: 10px;
-    background-color: #ddd;
-    display: flex;
-    gap: 10px;
-  }
-</style>
-
-<div class="chatScreen">
-  <div class="chatHeader">
-    <button on:click={goBack}>Back</button>
-    <span>{get(currentContact)?.name || "No Contact Selected"}</span>
-    <button on:click={clearChat}>Clear</button>
+<div class="screen">
+  <!-- Header -->
+  <div class="header">
+    <div class="leftbox">
+      <button bind:this={backref} class="back" on:click={() => push("/contacts")}>
+        <i class="fa-solid fa-arrow-left"></i>
+      </button>
+      <div class="uname">
+        <h4>{$currentContact.contact_name}</h4>
+        <h6>{$currentContact.contact_id}</h6>
+      </div>
+    </div>
+    {#if chats.length}
+      <button bind:this={delref} class="del" on:click={delMessages}>
+        <i class="fa-solid fa-trash"></i>
+      </button>
+    {/if}
   </div>
+  <hr />
 
-  <div class="chatMessages">
-    {#each $messages as msg (msg.id)}
+  <!-- Chat window -->
+  <div class="chatwindow">
+    {#each chats as currentmsg}
       <ChatBubble
-        className={msg.sender === get(sipFormData).phoneNum ? "sendBubble" : "receiveBubble"}
-        message={msg.text}
-        status={$messageStatusMap[msg.id]}
+        message={currentmsg.messagebody}
+        className={currentmsg.className === "send" ? "sendBubble" : "receiveBubble"}
+        status={currentmsg.className === "send" ? statuses[currentmsg.messageId] || "sent" : ""}
       />
     {/each}
   </div>
 
-  <div class="chatInputArea">
+  <!-- Input box -->
+  <div class="box">
     <TextBox
-      bind:value={message}
-      placeholder="Type a message..."
-      on:keypress={(e) => e.key === "Enter" && handleSendMessage()}
+      placeholder="Message..."
+      bind:value={msg}
+      bind:ref={textref}
     />
-    <button on:click={handleSendMessage}>Send</button>
+    <button bind:this={sendref} on:click={messageSend} class="sendBtn">
+      <i class="fa-solid fa-paper-plane"></i>
+    </button>
   </div>
 </div>
