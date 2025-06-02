@@ -3,6 +3,9 @@
   import { push } from "svelte-spa-router";
   import ChatBubble from "../../Components/ChatBubble/ChatBubble.svelte";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
+import { normalize } from '../../utils/normalize';
+
+
   import {
     currentContact,
     messages,
@@ -15,26 +18,31 @@
 
   let msg = "";
   let textref, sendref, backref, delref;
+  let chats = [];
 
   // Reactive subscription to message statuses
   $: statuses = $messageStatusMap;
 
   // Filter and format messages for current chat contact
-  $: chats = $messages
-    .filter(
-      (m) =>
-        (m.from === $currentContact.contact_id && m.to === $sipFormData.phoneNum) ||
-        (m.to === $currentContact.contact_id && m.from === $sipFormData.phoneNum)
-    )
-    .map((m) => {
-      const isSend = m.from === $sipFormData.phoneNum;
-      return {
+  $: {
+    const me = normalize($sipFormData.phoneNum);
+    const contact = normalize($currentContact.contact_id);
+
+    chats = $messages
+      .filter(
+        (m) =>
+          (m.from === contact && m.to === me) ||
+          (m.from === me && m.to === contact)
+      )
+      .map((m) => ({
         messagebody: m.content,
-        className: isSend ? "send" : "receive",
+        className: m.from === me ? "send" : "receive",
         messageId: m.messageId,
-        status: isSend ? (statuses[m.messageId] || "sent") : "received",
-      };
-    });
+        status: m.from === me ? ($messageStatusMap[m.messageId] || "sent") : "received",
+      }));
+
+    console.log("[Chat] Loaded messages for contact:", contact, "User:", me, "Chats:", chats);
+  }
 
   const handleTextFocus = () => {
     if (textref) textref.focus();
@@ -43,29 +51,23 @@
   const generateMessageId = () => `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
 
   // Send message via SIP and update local store
-  const messageSend = () => {
-    if (!msg.trim()) {
-      alert("Message can't be empty");
-      return handleTextFocus();
-    }
+  // In chatscreen.svelte messageSend, use the returned messageId and do NOT addMessage again
+const messageSend = () => {
+  if (!msg.trim()) {
+    alert("Message can't be empty");
+    return handleTextFocus();
+  }
 
-    const messageId = sendMessage(
-      $currentContact.contact_id,
-      msg,
-      $sipFormData.phoneNum
-    ) || generateMessageId();
+  const messageId = sendMessage(
+    $currentContact.contact_id,
+    msg,
+    $sipFormData.phoneNum
+  );
 
-    addMessage({
-      from: $sipFormData.phoneNum,
-      to: $currentContact.contact_id,
-      content: msg,
-      messageId,
-      status: "sent",
-    });
+  msg = "";
+  handleTextFocus();
+};
 
-    msg = "";
-    handleTextFocus();
-  };
 
   // Delete all messages in the current conversation
   const delMessages = () => {

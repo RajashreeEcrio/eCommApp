@@ -1,4 +1,7 @@
-import { addMessage, updateMessageStatus } from "../Store/store";
+import { messages,addMessage, updateMessageStatus } from "../Store/store";
+import { normalize } from '../utils/normalize.js';
+
+
 
 let ua;
 
@@ -17,7 +20,8 @@ export const registerSIP = (data) => {
     ua = new JsSIP.UA(configuration);
     console.log("[registerSIP] Created UA with config:", configuration);
 
-    initializeReceive(ua);
+    // Pass phoneNum to help avoid echo
+    initializeReceive(ua, data.phoneNum);
 
     ua.on("registered", () => {
       console.log("[registerSIP] SIP registered successfully");
@@ -88,14 +92,16 @@ export const sendMessage = (to, message, senderUri) => {
   ua.sendMessage(target, cpimBody, messageOptions);
 
   addMessage({
-    from: senderUri,
-    to,
+    from: normalize(senderUri),
+    to: normalize(to),
     content: message,
     datetime: now,
     messageId: contributionId,
     status: 'sent',
   });
   console.log("[sendMessage] Message added to store with messageId:", contributionId);
+
+  return contributionId;
 };
 
 const sendImdnReceipt = (toUri, messageId) => {
@@ -147,42 +153,38 @@ const parseCpimBody = (body) => {
 
   console.log("[parseCpimBody] Parsed:", { from, to, datetime, content, messageId });
 
-  return { from, to, datetime, content, messageId };
+  return {  from: normalize(from),
+ to:   normalize(to),
+datetime, content, messageId };
 };
 
-const initializeReceive = (uaInstance) => {
-  console.log("[initializeReceive] Setting up newMessage event handler");
+const exists = (id) =>
+  get(messages).some((m) => m.messageId === id);
 
+const initializeReceive = (uaInstance, myPhoneNum) => {
   uaInstance.on("newMessage", (e) => {
-    console.log("[newMessage event] Received:", {
-      originator: e.originator,
-      from: e.request.from.uri.user,
-      to: e.request.to.uri.user,
-      contentType: e.request.getHeader("Content-Type"),
-      bodyPreview: e.request.body?.substring(0, 50) || "",
-    });
-
-   const sender = e.request.from.uri.user;
-const myUserId = uaInstance.configuration.uri.user;
-
-function normalize(uri) {
-  return uri.replace(/^sip:/, '').replace(/@.*$/, '');
-}
-
-const normalizedSender = normalize(sender);
-const normalizedMyUserId = normalize(myUserId);
-
-if (normalizedSender === normalizedMyUserId) {
-  console.log("Skipping message from self or non-remote originator");
-  return;
-}
-
+    if (e.originator !== "remote") {
+      // Only handle incoming messages
+      return;
+    }
 
     const rawBody = e.request.body;
     const contentType = e.request.getHeader("Content-Type");
+    const myUser = uaInstance?.configuration?.uri?.user;
 
-    if (contentType && contentType.includes("application/imdn+xml")) {
-      console.log("[newMessage event] Received IMDN XML:", rawBody);
+
+    const parseImdnReceipt = (body) => {
+      const messageIdMatch = body.match(/<message-id>([^<]+)<\/message-id>/);
+      const statusMatch = body.match(/<delivered\/>/); // Check for delivered status
+
+      const messageId = messageIdMatch ? messageIdMatch[1].trim() : null;
+      const status = statusMatch ? "delivered" : "unknown";
+
+      return { messageId, status };
+    };
+
+   if (contentType && contentType.includes("application/imdn+xml")) {
+      console.log("[newMessage] Received IMDN XML:", rawBody);
 
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(rawBody, "application/xml");
@@ -191,64 +193,75 @@ if (normalizedSender === normalizedMyUserId) {
 
       if (messageIdNode && statusNode) {
         const messageId = messageIdNode.textContent;
+
         if (statusNode.querySelector("delivered")) {
-          console.log(`[newMessage event] Updating messageId=${messageId} with status='delivered'`);
           updateMessageStatus(messageId, "delivered");
+          console.log(`[IMDN] Delivered receipt processed for: ${messageId}`);
         }
-        if (statusNode.querySelector("display")) {
-          console.log(`[newMessage event] Updating messageId=${messageId} with status='read'`);
+
+        if (statusNode.querySelector("displayed")) {
           updateMessageStatus(messageId, "read");
+          console.log(`[IMDN] Read receipt processed for: ${messageId}`);
         }
       } else {
-        console.warn("[newMessage event] IMDN receipt missing message-id or status:", rawBody);
+        console.warn("[IMDN] Missing <message-id> or <status> node");
       }
-      return;
+      return; // Don't show in UI
     }
 
+    // ========== CPIM MESSAGE ==========
     if (contentType && contentType.includes("message/cpim")) {
       const parsed = parseCpimBody(rawBody);
 
-      if ((!parsed.content || parsed.content === "") && rawBody.includes("imdn.Disposition-Notification")) {
-        console.log("[newMessage event] Empty content with imdn.Disposition-Notification, ignoring.");
+      if ((!parsed.content || parsed.content.trim() === "") &&
+          rawBody.includes("Disposition-Notification")) {
+        console.log("[CPIM] Empty Disposition Notification, skipping.");
         return;
       }
 
-      if (parsed.content) {
-        console.log("[newMessage event] Received RCS message:", parsed);
+      const from = parsed.from;
+      const to = parsed.to;
 
-        addMessage({
-          from: parsed.from,
-          to: parsed.to,
-          content: parsed.content,
-          datetime: parsed.datetime,
-          messageId: parsed.messageId || generateContributionId(),
-          status: 'received',
-        });
-
-        if (parsed.from && parsed.messageId) {
-          const senderUri = `sip:${parsed.from}`;
-          sendImdnReceipt(senderUri, parsed.messageId);
-        }
-      } else {
-        console.warn("[newMessage event] Failed to parse CPIM body:", rawBody);
-      }
-    } else {
-      // Plain text or unknown content type fallback
-      if (!uaInstance || !uaInstance.configuration || !uaInstance.configuration.uri) {
-        console.warn("[newMessage event] UA not initialized properly for plain text message handling");
+      if (from === myUser) {
+        console.log("[CPIM] Ignoring echo of own message");
         return;
       }
 
-      const fromUser = e.request.from.uri.user || e.request.from.uri.toString();
-      console.log("[newMessage event] Adding plain text message to store", { fromUser, rawBody });
+      const msgId = parsed.messageId || generateContributionId();
+
       addMessage({
-        from: fromUser,
-        to: uaInstance.configuration.uri.user,
-        content: rawBody,
-        datetime: new Date().toISOString(),
-        messageId: generateContributionId(),
-        status: 'received',
+        from,
+        to,
+        content: parsed.content,
+        datetime: parsed.datetime,
+        messageId: msgId,
+        status: "received",
       });
+
+      // Send IMDN receipt
+      if (from && msgId) {
+        sendImdnReceipt(`sip:${from}`, msgId);
+      }
+
+      console.log("[CPIM] Message handled and UI updated");
+      return;
     }
+
+    // ========== Fallback: Plain Text ==========
+    if (fromUser === myUser) {
+      console.log("[Text] Ignoring own message echo");
+      return;
+    }
+
+    const fallbackId = generateContributionId();
+
+    addMessage({
+      from: fromUser,
+      to: myUser,
+      content: rawBody,
+      datetime: new Date().toISOString(),
+      messageId: fallbackId,
+      status: "received",
+    });
   });
 };

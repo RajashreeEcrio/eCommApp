@@ -1,4 +1,8 @@
 import { writable } from "svelte/store";
+import { normalize } from '../utils/normalize';
+
+
+
 
 // Current active contact
 export const currentContact = writable({});
@@ -21,13 +25,21 @@ export const messageStatusMap = writable({});
 
 // Add a new message, avoid duplicates by messageId
 export const addMessage = (msg) => {
+  // Normalize sender and receiver before adding
+  const normalizedMsg = {
+    ...msg,
+    from: normalize(msg.from),
+    to: normalize(msg.to),
+  };
+
   messages.update((msgs) => {
-    if (msgs.find((m) => m.messageId === msg.messageId)) {
+    if (msgs.find((m) => m.messageId === normalizedMsg.messageId)) {
       return msgs;
     }
-    return [...msgs, msg];
+    return [...msgs, normalizedMsg];
   });
 };
+
 
 // Update the status of a message by messageId
 // Also sync status in messageStatusMap
@@ -60,6 +72,11 @@ export const updateMessageStatus = (messageId, status) => {
 // Clear all messages related to a specific contactId (either sender or receiver)
 export const clearMessagesForContact = (contactId) => {
   messages.update((msgs) =>
-    msgs.filter((msg) => msg.from !== contactId && msg.to !== contactId)
+    msgs.filter(
+      (msg) =>
+        normalize(msg.from) !== contactId &&
+        normalize(msg.to) !== contactId
+    )
   );
 };
+
