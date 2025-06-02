@@ -1,13 +1,16 @@
-import { receiveMsg, addMessage, updateMessageStatus } from "../Store/store";
+import { messages,addMessage, updateMessageStatus } from "../Store/store";
+import { normalize } from '../utils/normalize.js';
+
+
 
 let ua;
 
-// Configure WebSocket interface
-const socket = new JsSIP.WebSocketInterface("ws://192.168.1.70:5071");
+const socket = new JsSIP.WebSocketInterface("ws://192.168.1.71:5071");
 
-// Register SIP user agent
 export const registerSIP = (data) => {
   return new Promise((resolve, reject) => {
+    console.log("[registerSIP] Starting registration with data:", data);
+    
     const configuration = {
       sockets: [socket],
       uri: `sip:${data.phoneNum}@ecrio.com`,
@@ -15,33 +18,43 @@ export const registerSIP = (data) => {
     };
 
     ua = new JsSIP.UA(configuration);
-    initializeReceive(ua); // Setup message listener
+    console.log("[registerSIP] Created UA with config:", configuration);
+
+    // Pass phoneNum to help avoid echo
+    initializeReceive(ua, data.phoneNum);
 
     ua.on("registered", () => {
-      console.log("SIP registered");
+      console.log("[registerSIP] SIP registered successfully");
       resolve(true);
     });
 
     ua.on("registrationFailed", (e) => {
-      console.error("SIP registration failed", e);
+      console.error("[registerSIP] SIP registration failed", e);
       reject(false);
     });
 
     ua.start();
+    console.log("[registerSIP] UA.start() called");
   });
 };
 
 export const isSIPRegistered = () => {
-  return ua ? ua.isRegistered() : false;
+  const status = ua ? ua.isRegistered() : false;
+  console.log("[isSIPRegistered] UA registered status:", status);
+  return status;
 };
 
 const generateContributionId = () => {
-  return Math.random().toString(36).substring(2, 15);
+  const id = Math.random().toString(36).substring(2, 15);
+  console.log("[generateContributionId] Generated ID:", id);
+  return id;
 };
 
 export const sendMessage = (to, message, senderUri) => {
+  console.log("[sendMessage] Sending message to:", to, "from:", senderUri, "message:", message);
+
   if (!ua) {
-    console.log("SIP UA not initialized");
+    console.log("[sendMessage] SIP UA not initialized");
     return;
   }
 
@@ -68,27 +81,33 @@ export const sendMessage = (to, message, senderUri) => {
       `P-Preferred-Identity: <sip:${senderUri}@ecrio.com>`,
       'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.1.70:9090;lr>",
+      "Route: <sip:192.168.1.71:9090;lr>",
       `Conversation-ID: ${contributionId}`,
       `Contribution-ID: ${contributionId}`,
     ],
   };
 
   const target = `sip:${to}@ecrio.com`;
+  console.log("[sendMessage] Sending CPIM message with options:", messageOptions);
   ua.sendMessage(target, cpimBody, messageOptions);
 
   addMessage({
-    from: senderUri,
-    to,
+    from: normalize(senderUri),
+    to: normalize(to),
     content: message,
     datetime: now,
     messageId: contributionId,
     status: 'sent',
   });
+  console.log("[sendMessage] Message added to store with messageId:", contributionId);
+
+  return contributionId;
 };
 
-// ✅ Send IMDN delivery receipt to sender
+
 const sendImdnReceipt = (toUri, messageId) => {
+  console.log("[sendImdnReceipt] Sending IMDN receipt to:", toUri, "for messageId:", messageId);
+
   const now = new Date().toISOString();
 
   const imdnXml =
@@ -107,15 +126,17 @@ const sendImdnReceipt = (toUri, messageId) => {
       'Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg";require;explicit',
       'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.1.70:9090;lr>",
+      "Route: <sip:192.168.1.71:9090;lr>",
     ],
   };
 
   ua.sendMessage(toUri, imdnXml, messageOptions);
-  console.log("IMDN Delivery Receipt sent to:", toUri);
+  console.log("[sendImdnReceipt] IMDN Delivery Receipt sent successfully");
 };
 
 const parseCpimBody = (body) => {
+  console.log("[parseCpimBody] Parsing CPIM body");
+  
   const contentMatch = body.match(/TEXT:::-:::(.*)/s);
   const content = contentMatch ? contentMatch[1].trim() : null;
 
@@ -131,81 +152,118 @@ const parseCpimBody = (body) => {
   const messageIdMatch = body.match(/^imdn\.Message-ID:\s*(.+)$/m);
   const messageId = messageIdMatch ? messageIdMatch[1].trim() : null;
 
-  return { from, to, datetime, content, messageId };
+  console.log("[parseCpimBody] Parsed:", { from, to, datetime, content, messageId });
+
+  return {  from: normalize(from),
+ to:   normalize(to),
+datetime, content, messageId };
 };
 
-const initializeReceive = (uaInstance) => {
+const exists = (id) =>
+  get(messages).some((m) => m.messageId === id);
+
+const initializeReceive = (uaInstance, myPhoneNum) => {
   uaInstance.on("newMessage", (e) => {
-    if (e.originator !== "remote") return;
+    if (e.originator !== "remote") {
+      // Only handle incoming messages
+      return;
+    }
 
     const rawBody = e.request.body;
     const contentType = e.request.getHeader("Content-Type");
+    const myUser = uaInstance?.configuration?.uri?.user;
 
-    // If it's an IMDN receipt, update status but DO NOT show message in UI
-    if (contentType && contentType.includes("application/imdn+xml")) {
-      // Parse the IMDN XML (basic parse)
+
+    const parseImdnReceipt = (body) => {
+      const messageIdMatch = body.match(/<message-id>([^<]+)<\/message-id>/);
+      const statusMatch = body.match(/<delivered\/>/); // Check for delivered status
+
+      const messageId = messageIdMatch ? messageIdMatch[1].trim() : null;
+      const status = statusMatch ? "delivered" : "unknown";
+
+      return { messageId, status };
+    };
+
+    // Handle IMDN delivery receipt (do not add to UI)
+  if (contentType && contentType.includes("application/imdn+xml")) {
+      console.log("[newMessage] Received IMDN XML:", rawBody);
+
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(rawBody, "application/xml");
       const messageIdNode = xmlDoc.getElementsByTagName("message-id")[0];
       const statusNode = xmlDoc.getElementsByTagName("status")[0];
-      
+
       if (messageIdNode && statusNode) {
         const messageId = messageIdNode.textContent;
-        // Assuming <delivered/> or <display/> inside <status>
+
         if (statusNode.querySelector("delivered")) {
           updateMessageStatus(messageId, "delivered");
+          console.log(`[IMDN] Delivered receipt processed for: ${messageId}`);
         }
-        if (statusNode.querySelector("display")) {
+
+        if (statusNode.querySelector("displayed")) {
           updateMessageStatus(messageId, "read");
+          console.log(`[IMDN] Read receipt processed for: ${messageId}`);
         }
+      } else {
+        console.warn("[IMDN] Missing <message-id> or <status> node");
       }
-      return; // Exit here so no UI update with receipt message
+      return; // Don't show in UI
     }
 
+    // ========== CPIM MESSAGE ==========
     if (contentType && contentType.includes("message/cpim")) {
       const parsed = parseCpimBody(rawBody);
 
-      if ((!parsed.content || parsed.content === "") &&
-          rawBody.includes("imdn.Disposition-Notification")) {
-        // Handle disposition notification if any, but it's unlikely in CPIM body for receipts
-        // You can add more logic here if needed
+      if ((!parsed.content || parsed.content.trim() === "") &&
+          rawBody.includes("Disposition-Notification")) {
+        console.log("[CPIM] Empty Disposition Notification, skipping.");
         return;
       }
 
-      if (parsed.content) {
-        console.log("Received RCS message:", parsed);
-        receiveMsg.set(parsed.content);
-        addMessage({
-          from: parsed.from,
-          to: parsed.to,
-          content: parsed.content,
-          datetime: parsed.datetime,
-          messageId: parsed.messageId,
-          status: 'received',
-        });
+      const from = parsed.from;
+      const to = parsed.to;
 
-        // Send IMDN receipt for this message
-        if (parsed.from && parsed.messageId) {
-          const senderUri = `sip:${parsed.from}`;
-          sendImdnReceipt(senderUri, parsed.messageId);
-        }
-      } else {
-        console.warn("Failed to parse CPIM body:", rawBody);
+      if (from === myUser) {
+        console.log("[CPIM] Ignoring echo of own message");
+        return;
       }
-    } else {
-      // Handle normal plain text or other messages here if any
-      const senderUri = e.request.from.uri;
-      const message = {
-        from: senderUri,
-        to: ua.configuration.uri.user,
-        content: rawBody,
-        datetime: new Date().toISOString(),
-        messageId: null,
-        status: 'received',
-      };
-      receiveMsg.set(message.content);
-      addMessage(message);
+
+      const msgId = parsed.messageId || generateContributionId();
+
+      addMessage({
+        from,
+        to,
+        content: parsed.content,
+        datetime: parsed.datetime,
+        messageId: msgId,
+        status: "received",
+      });
+
+      // Send IMDN receipt
+      if (from && msgId) {
+        sendImdnReceipt(`sip:${from}`, msgId);
+      }
+
+      console.log("[CPIM] Message handled and UI updated");
+      return;
     }
+
+    // ========== Fallback: Plain Text ==========
+    if (fromUser === myUser) {
+      console.log("[Text] Ignoring own message echo");
+      return;
+    }
+
+    const fallbackId = generateContributionId();
+
+    addMessage({
+      from: fromUser,
+      to: myUser,
+      content: rawBody,
+      datetime: new Date().toISOString(),
+      messageId: fallbackId,
+      status: "received",
+    });
   });
 };
-

@@ -3,11 +3,13 @@
   import { push } from "svelte-spa-router";
   import ChatBubble from "../../Components/ChatBubble/ChatBubble.svelte";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
+  import { normalize } from '../../utils/normalize';
   import {
     currentContact,
-    receiveMsg,
+    messages,
     sipFormData,
-    messageStatusMap
+    messageStatusMap,
+    addMessage,
   } from "../../Store/store";
   import { sendMessage } from "../../JsSIP/sip";
   import "./style.css";
@@ -19,91 +21,78 @@
   // Reactive subscription to message statuses
   $: statuses = $messageStatusMap;
 
-  // Focus text input box
+  // Filter and format messages for current chat contact
+  $: {
+    const me = normalize($sipFormData.phoneNum);
+    const contact = normalize($currentContact.contact_id);
+
+    chats = $messages
+      .filter(
+        (m) =>
+          (m.from === contact && m.to === me) ||
+          (m.from === me && m.to === contact)
+      )
+      .map((m) => ({
+        messagebody: m.content,
+        className: m.from === me ? "send" : "receive",
+        messageId: m.messageId,
+        status: m.from === me ? ($messageStatusMap[m.messageId] || "sent") : "received",
+      }));
+
+    console.log("[Chat] Loaded messages for contact:", contact, "User:", me, "Chats:", chats);
+  }
+
   const handleTextFocus = () => {
     if (textref) textref.focus();
-    else console.warn("textref is null, cannot focus");
   };
 
-  const messageSend = () => {
-    if (!msg.trim()) {
-      alert("Message can't be empty");
-      return handleTextFocus();
-    }
+  const generateMessageId = () => `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
 
-    // sendMessage returns messageId for tracking read receipts
-    const messageId = sendMessage(
-      $currentContact.contact_id,
-      msg,
-      $sipFormData.phoneNum
-    );
-
-    // Add sent message to local chat list
-    chats = [
-      ...chats,
-      {
-        messagebody: msg,
-        className: "send",
-        messageId,
-         status: 'sent'
-      }
-    ];
-
-    msg = "";
-    handleTextFocus();
-  };
-
-  const delMessages = () => {
-    chats = [];
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") sendref.click();
-    else if (e.key === "SoftLeft") backref.click();
-    else if (e.key === "SoftRight" && msg) msg = msg.slice(0, -1);
-    else if (e.key === "ArrowUp") delref.click();
-  };
-
-  // Append received messages when receiveMsg store updates
-  $: if ($receiveMsg) {
-    // Avoid duplicate received messages
-    if (
-      !$receiveMsg.trim() ||
-      chats.some(c => c.messagebody === $receiveMsg && c.className === "receive")
-    ) {
-      // do nothing
-    } else {
-      chats = [
-        ...chats,
-        {
-          messagebody: $receiveMsg,
-          className: "receive",
-          messageId: null,
-           status: "received"
-        }
-      ];
-    }
+  // Send message via SIP and update local store
+ // In chatscreen.svelte messageSend, use the returned messageId and do NOT addMessage again
+const messageSend = () => {
+  if (!msg.trim()) {
+    alert("Message can't be empty");
+    return handleTextFocus();
   }
+
+  const messageId = sendMessage(
+    $currentContact.contact_id,
+    msg,
+    $sipFormData.phoneNum
+  );
+
+  msg = "";
+  handleTextFocus();
+};
+
+
+  // Delete all messages in the current conversation
+  const delMessages = () => {
+    messages.update((msgs) =>
+      msgs.filter(
+        (m) =>
+          !(
+            (m.from === $currentContact.contact_id && m.to === $sipFormData.phoneNum) ||
+            (m.to === $currentContact.contact_id && m.from === $sipFormData.phoneNum)
+          )
+      )
+    );
+  };
+
+  // Keyboard shortcuts and soft key handling
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") messageSend();
+    else if (e.key === "SoftLeft") backref?.click();
+    else if (e.key === "SoftRight" && msg) msg = msg.slice(0, -1);
+    else if (e.key === "ArrowUp") delref?.click();
+  };
 
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
     handleTextFocus();
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
-
-  // Watch for messageStatusMap changes and update status in chats
-$: {
-  chats = chats.map(chat => {
-    if (chat.className === "send" && chat.messageId && statuses[chat.messageId]) {
-      return {
-        ...chat,
-        status: statuses[chat.messageId]
-      };
-    }
-    return chat;
-  });
-}
-
 </script>
 
 <div class="screen">
