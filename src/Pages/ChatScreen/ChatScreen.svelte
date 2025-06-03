@@ -3,25 +3,24 @@
   import { push } from "svelte-spa-router";
   import ChatBubble from "../../Components/ChatBubble/ChatBubble.svelte";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
-  import { normalize } from '../../utils/normalize';
   import {
-    currentContact,
+    updateMessageStatus,
     messages,
+    currentContact,
     sipFormData,
     messageStatusMap,
-    addMessage,
   } from "../../Store/store";
-  import { sendMessage } from "../../JsSIP/sip";
+  import { sendImdnReceipt, sendMessage } from "../../JsSIP/sip";
+  import { normalize } from "../../utils/normalize";
   import "./style.css";
 
   let msg = "";
   let textref, sendref, backref, delref;
   let chats = [];
+  let seenMessages = new Set();
 
-  // Reactive subscription to message statuses
   $: statuses = $messageStatusMap;
 
-  // Filter and format messages for current chat contact
   $: {
     const me = normalize($sipFormData.phoneNum);
     const contact = normalize($currentContact.contact_id);
@@ -29,58 +28,97 @@
     chats = $messages
       .filter(
         (m) =>
-          (m.from === contact && m.to === me) ||
-          (m.from === me && m.to === contact)
+          (normalize(m.from) === contact && normalize(m.to) === me) ||
+          (normalize(m.from) === me && normalize(m.to) === contact)
       )
-      .map((m) => ({
-        messagebody: m.content,
-        className: m.from === me ? "send" : "receive",
-        messageId: m.messageId,
-        status: m.from === me ? ($messageStatusMap[m.messageId] || "sent") : "received",
-      }));
-
-    console.log("[Chat] Loaded messages for contact:", contact, "User:", me, "Chats:", chats);
+      .map((m) => {
+        const isFromMe = normalize(m.from) === me;
+        return {
+          messagebody: m.content,
+          className: isFromMe ? "sendBubble" : "receiveBubble",
+          messageId: m.messageId,
+          status: isFromMe ? ($messageStatusMap[m.messageId] || "sent") : "received",
+          from: m.from,
+          to: m.to,
+        };
+      });
   }
+
+  // 🔵 Send displayed receipt when message is received and chat screen is open
+   function isMessageVisible(messageId) {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= (window.innerHeight || document.documentElement.clientHeight);
+  }
+
+  // Function to send displayed receipts for all eligible messages
+  function sendDisplayedReceipts() {
+    const me = normalize($sipFormData.phoneNum);
+    const contact = normalize($currentContact.contact_id);
+
+    chats.forEach((msg) => {
+      const isIncoming = normalize(msg.from) === contact;
+      const isDelivered = statuses[msg.messageId] === "delivered";
+      const alreadySeen = seenMessages.has(msg.messageId);
+      const visible = isMessageVisible(msg.messageId);
+
+      if (isIncoming && isDelivered && !alreadySeen && visible) {
+        updateMessageStatus(msg.messageId, "displayed");
+        sendImdnReceipt(`sip:${msg.from}@ecrio.com`, msg.messageId, "displayed");
+        seenMessages.add(msg.messageId);
+        console.log("[IMDN] Displayed receipt sent:", msg.messageId);
+      }
+    });
+  }
+
+  // Run on mount - delay to wait for UI to render
+  onMount(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    handleTextFocus();
+
+    // Delay sending displayed receipts until UI is ready
+    setTimeout(() => {
+      sendDisplayedReceipts();
+    }, 300);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
 
   const handleTextFocus = () => {
-    if (textref) textref.focus();
+    textref?.focus();
   };
 
-  const generateMessageId = () => `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+  const messageSend = () => {
+    if (!msg.trim()) {
+      alert("Message can't be empty");
+      return handleTextFocus();
+    }
 
-  // Send message via SIP and update local store
- // In chatscreen.svelte messageSend, use the returned messageId and do NOT addMessage again
-const messageSend = () => {
-  if (!msg.trim()) {
-    alert("Message can't be empty");
-    return handleTextFocus();
-  }
+    const messageId = sendMessage(
+      $currentContact.contact_id,
+      msg,
+      $sipFormData.phoneNum
+    );
 
-  const messageId = sendMessage(
-    $currentContact.contact_id,
-    msg,
-    $sipFormData.phoneNum
-  );
+    msg = "";
+    handleTextFocus();
+  };
 
-  msg = "";
-  handleTextFocus();
-};
-
-
-  // Delete all messages in the current conversation
   const delMessages = () => {
     messages.update((msgs) =>
       msgs.filter(
         (m) =>
           !(
-            (m.from === $currentContact.contact_id && m.to === $sipFormData.phoneNum) ||
-            (m.to === $currentContact.contact_id && m.from === $sipFormData.phoneNum)
+            (normalize(m.from) === normalize($currentContact.contact_id) &&
+              normalize(m.to) === normalize($sipFormData.phoneNum)) ||
+            (normalize(m.to) === normalize($currentContact.contact_id) &&
+              normalize(m.from) === normalize($sipFormData.phoneNum))
           )
       )
     );
   };
 
-  // Keyboard shortcuts and soft key handling
   const handleKeyDown = (e) => {
     if (e.key === "Enter") messageSend();
     else if (e.key === "SoftLeft") backref?.click();
@@ -88,12 +126,8 @@ const messageSend = () => {
     else if (e.key === "ArrowUp") delref?.click();
   };
 
-  onMount(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    handleTextFocus();
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  });
 </script>
+
 
 <div class="screen">
   <!-- Header -->
@@ -116,15 +150,16 @@ const messageSend = () => {
   <hr />
 
   <!-- Chat window -->
-  <div class="chatwindow">
-    {#each chats as currentmsg}
-      <ChatBubble
-        message={currentmsg.messagebody}
-        className={currentmsg.className === "send" ? "sendBubble" : "receiveBubble"}
-        status={currentmsg.className === "send" ? (statuses[currentmsg.messageId] || "sent") : ""}
-      />
-    {/each}
-  </div>
+   <div class="chatwindow">
+  {#each chats as currentmsg}
+    <ChatBubble
+      id={"msg-" + currentmsg.messageId}
+      message={currentmsg.messagebody}
+      className={currentmsg.className}
+      status={currentmsg.className === "sendBubble" ? (statuses[currentmsg.messageId] || "sent") : ""}
+    />
+  {/each}
+</div>
 
   <!-- Input box -->
   <div class="box">
