@@ -1,10 +1,11 @@
 <script>
+  export let id = "";
   export let message = "";
   export let className = "";
   export let status = ""; // "sent", "delivered", "read"
 </script>
 
-<div class={"chat-bubble " + className}>
+<div id={id} class={"chat-bubble " + className}>
   <div class="content">
     <span class="msg">{message}</span>
 
@@ -21,6 +22,7 @@
     {/if}
   </div>
 </div>
+
 
 <style>
   .chat-bubble {
