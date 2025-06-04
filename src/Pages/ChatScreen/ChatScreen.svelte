@@ -18,6 +18,7 @@
   let textref, sendref, backref, delref;
   let chats = [];
   let seenMessages = new Set();
+   let displayedMessages = new Set();
 
   $: statuses = $messageStatusMap;
 
@@ -37,14 +38,17 @@
           messagebody: m.content,
           className: isFromMe ? "sendBubble" : "receiveBubble",
           messageId: m.messageId,
-          status: isFromMe ? ($messageStatusMap[m.messageId] || "sent") : "received",
+          status: isFromMe 
+          ? ($messageStatusMap[m.messageId] || "sent") 
+          : ($messageStatusMap[m.messageId] || "delivered"),
           from: m.from,
           to: m.to,
         };
       });
+       sendDisplayedReceipts();
   }
 
-  // 🔵 Send displayed receipt when message is received and chat screen is open
+  //  Send displayed receipt when message is received and chat screen is open
    function isMessageVisible(messageId) {
     const el = document.getElementById(`msg-${messageId}`);
     if (!el) return false;
@@ -53,37 +57,42 @@
   }
 
   // Function to send displayed receipts for all eligible messages
-  function sendDisplayedReceipts() {
+    function sendDisplayedReceipts() {
     const me = normalize($sipFormData.phoneNum);
     const contact = normalize($currentContact.contact_id);
 
-    chats.forEach((msg) => {
+    chats.forEach(msg => {
       const isIncoming = normalize(msg.from) === contact;
-      const isDelivered = statuses[msg.messageId] === "delivered";
-      const alreadySeen = seenMessages.has(msg.messageId);
-      const visible = isMessageVisible(msg.messageId);
+      const isDelivered = msg.status === "delivered";
+      const notYetDisplayed = !displayedMessages.has(msg.messageId);
+      const isVisible = isMessageVisible(msg.messageId);
 
-      if (isIncoming && isDelivered && !alreadySeen && visible) {
-        updateMessageStatus(msg.messageId, "displayed");
+      if (isIncoming && isDelivered && notYetDisplayed && isVisible) {
+         console.log("[DISPLAYED SENT]", msg.messageId);
+        displayedMessages.add(msg.messageId);
         sendImdnReceipt(`sip:${msg.from}@ecrio.com`, msg.messageId, "displayed");
-        seenMessages.add(msg.messageId);
         console.log("[IMDN] Displayed receipt sent:", msg.messageId);
       }
     });
   }
 
-  // Run on mount - delay to wait for UI to render
   onMount(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    handleTextFocus();
-
-    // Delay sending displayed receipts until UI is ready
-    setTimeout(() => {
-      sendDisplayedReceipts();
-    }, 300);
-
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    // Initial check after UI renders
+    setTimeout(sendDisplayedReceipts, 300);
+    
+    // Check when scrolling
+    const chatWindow = document.querySelector('.chatwindow');
+    if (chatWindow) chatWindow.addEventListener('scroll', sendDisplayedReceipts);
+    
+    return () => {
+      if (chatWindow) chatWindow.removeEventListener('scroll', sendDisplayedReceipts);
+    };
   });
+
+  // Check when messages change
+  $: if ($messages) {
+    setTimeout(sendDisplayedReceipts, 100);
+  }
 
   const handleTextFocus = () => {
     textref?.focus();

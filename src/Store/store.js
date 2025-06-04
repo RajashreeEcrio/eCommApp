@@ -45,11 +45,17 @@ export const addMessage = (msg) => {
 // Also sync status in messageStatusMap
 export const updateMessageStatus = (messageId, status) => {
   let updated = false;
+  
   messages.update((msgs) =>
     msgs.map((msg) => {
       if (msg.messageId === messageId) {
-        updated = true;
-        return { ...msg, status };
+        // Only allow status to progress forward
+        if ((msg.status === "sent" && (status === "delivered" || status === "read")) ||
+            (msg.status === "delivered" && status === "read") ||
+            (msg.status === undefined)) {
+          updated = true;
+          return { ...msg, status };
+        }
       }
       return msg;
     })
@@ -58,17 +64,15 @@ export const updateMessageStatus = (messageId, status) => {
   if (updated) {
     messageStatusMap.update((map) => {
       const newMap = { ...map, [messageId]: status };
-      console.log("✅ IMDN RECEIPT RECEIVED: Status updated", newMap);
+      console.log("IMDN RECEIPT RECEIVED: Status updated", newMap);
       return newMap;
     });
   } else {
-    console.warn("⚠️ IMDN received but messageId not found:", messageId);
+    console.warn("IMDN received but messageId not found or invalid status transition:", messageId, "Current:", msg.status, "Attempted:", status);
   }
 
   return updated;
 };
-
-
 // Clear all messages related to a specific contactId (either sender or receiver)
 export const clearMessagesForContact = (contactId) => {
   messages.update((msgs) =>

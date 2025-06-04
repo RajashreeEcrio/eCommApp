@@ -2,7 +2,7 @@ import { messages, addMessage, updateMessageStatus } from "../Store/store";
 import { normalize } from "../utils/normalize.js";
 
 let ua;
-const socket = new JsSIP.WebSocketInterface("ws://192.168.1.70:5066");
+const socket = new JsSIP.WebSocketInterface("ws://192.168.1.71:5066");
 
 export const registerSIP = (data) => {
   return new Promise((resolve, reject) => {
@@ -73,7 +73,7 @@ export const sendMessage = (to, message, senderUri) => {
       `P-Preferred-Identity: <sip:${senderUri}@ecrio.com>`,
       'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.1.70:9090;lr>",
+      "Route: <sip:192.168.1.71:9090;lr>",
       `Conversation-ID: ${contributionId}`,
       `Contribution-ID: ${contributionId}`,
     ],
@@ -119,12 +119,11 @@ export const sendImdnReceipt = (toUri, messageId, status = "delivered") => {
       'Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg";require;explicit',
       'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.1.70:9090;lr>",
+      "Route: <sip:192.168.1.71:9090;lr>",
     ],
   };
 
   ua.sendMessage(toUri, imdnXml, messageOptions);
-  updateMessageStatus(messageId, status);
 };
 
 const parseCpimBody = (body) => {
@@ -161,24 +160,20 @@ const initializeReceive = (uaInstance, myPhoneNum) => {
     const myUser = uaInstance?.configuration?.uri?.user;
 
    // In initializeReceive function, modify the IMDN handling:
-if (contentType && contentType.includes("application/imdn+xml")) {
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(rawBody, "application/xml");
-  const messageIdNode = xmlDoc.getElementsByTagName("message-id")[0];
-  const statusNode = xmlDoc.getElementsByTagName("status")[0];
+if (contentType.includes("application/imdn+xml")) {
+  const messageId = rawBody.match(/<message-id>([^<]+)<\/message-id>/)?.[1]?.trim();
+  const status = rawBody.match(/<status>([^<]+)<\/status>/)?.[1]?.trim()?.toLowerCase();
 
-  if (messageIdNode && statusNode) {
-    const messageId = messageIdNode.textContent.trim();
-    const statusText = statusNode.textContent.trim().toLowerCase();
-
-    if (statusText === "delivered") {
+  if (messageId && status) {
+    if (status === "delivered") {
       updateMessageStatus(messageId, "delivered");
-    } else if (statusText === "displayed") {
-      updateMessageStatus(messageId, "read"); // Change to "read" for consistency
+    } else if (status === "displayed") {
+      updateMessageStatus(messageId, "read");
     }
   }
-  return;
+  return; // Skip further processing for IMDN
 }
+
 
     const parsed = parseCpimBody(rawBody);
     const from = parsed.from;
