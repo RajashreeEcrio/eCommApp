@@ -1,22 +1,58 @@
 <script>
-  import { onMount } from "svelte";
+  import { afterUpdate, onMount } from "svelte";
   import { push } from "svelte-spa-router";
   import ChatBubble from "../../Components/ChatBubble/ChatBubble.svelte";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
   import { currentContact, receiveMsg, sipFormData } from "../../Store/store";
   import { sendMessage } from "../../JsSIP/sip";
   import "./style.css";
+  import md5 from "crypto-js/md5";
 
   $: msg = "";
   let textref;
   let sendref;
+  let fileref;
   let backref;
   let delref;
+  let chatContainerRef;
   $: chats = [];
 
   // Focusing the text box
   const handleTextFocus = () => {
     textref?.focus();
+  };
+
+  const addImageToChats = async () => {
+    const imgURL = await downloadFile("c966d34ee8b25e57");
+    chats = [
+      {
+        type: "image",
+        messagebody: imgURL,
+        className: "receive",
+      },
+    ];
+  };
+
+  const generateTid = () => {
+    const hex = "0123456789abcdef";
+    let tid = "";
+    for (let i = 0; i < 16; i++) {
+      tid += hex[Math.floor(Math.random() * 16)];
+    }
+    return tid;
+  };
+
+  const extractTidfromXML = (xmlbody) => {
+    const xmlparser = new DOMParser();
+    const xmlDoc = xmlparser.parseFromString(xmlbody, "application/xml");
+    const dataTag = xmlDoc.querySelector("data");
+    if (dataTag) {
+      const responseURL = dataTag.getAttribute("url");
+      if (responseURL) {
+        const parts = responseURL.split("/");
+        return parts[parts.length - 1];
+      }
+    }
   };
 
   const messageSend = () => {
@@ -25,12 +61,13 @@
     } else {
       let mArray = [...chats];
       mArray.push({
+        type: "text",
         messagebody: msg,
         className: "send",
       });
       sendMessage(
         $currentContact.contact_id,
-        msg,
+        JSON.stringify({ type: "text", body: msg }),
         $sipFormData.phoneNum
       );
       chats = mArray;
@@ -39,8 +76,152 @@
     handleTextFocus();
   };
 
+  const fileSend = async (e) => {
+    const file = e.target.files[0];
+    let mArray = [...chats];
+    let file64 = URL.createObjectURL(file);
+    const link = "/apiFile/api/v1/content";
+
+    const formData = new FormData();
+    formData.append("tid", generateTid());
+    formData.append("File", file);
+
+    try {
+      const response = await fetch(link, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.status === 401) {
+        const authHeader = response.headers.get("www-authenticate");
+        console.warn("Server responded with", response.status);
+        console.log("WWW-Authenticate:", authHeader);
+
+        const authRegex = /(\w+)=["]?([^",]+)["]?/g;
+        const authParams = {};
+        let match;
+
+        while ((match = authRegex.exec(authHeader))) {
+          authParams[match[1]] = match[2];
+        }
+
+        const usrname = $sipFormData.phoneNum;
+        const pwd = $sipFormData.password;
+        const uri = "/api/v1/content";
+        const realm = authParams.realm;
+        const nonce = authParams.nonce;
+        const nc = "00000001";
+        const qop = authParams.qop;
+        const opaque = authParams.opaque;
+        const cnonce = Math.random().toString(36).slice(2, 10);
+
+        const ha1 = md5(`${usrname}:${realm}:${pwd}`).toString();
+        const ha2 = md5(`POST:${uri}`).toString();
+        const responseHash = md5(
+          `${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`
+        ).toString();
+
+        const authString = `Digest username="${usrname}", realm="${realm}", nonce="${nonce}", uri="${uri}", response="${responseHash}", opaque="${opaque}", qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
+
+        const finalRes = await fetch(link, {
+          method: "POST",
+          headers: {
+            Authorization: authString,
+          },
+          body: formData,
+        });
+        if (finalRes.ok) {
+          const xmltext=await finalRes.text();
+          console.log("Upload success:", finalRes, xmltext);
+          // sending SIP message
+          sendMessage(
+            $currentContact.contact_id,
+            JSON.stringify({
+              type: "image",
+              body: extractTidfromXML(xmltext),
+            }),
+            $sipFormData.phoneNum
+          );
+          mArray.push({
+            type: "image",
+            messagebody: file64,
+            className: "send",
+          });
+          chats = mArray;
+        } else {
+          console.error("Final upload failed:", finalRes.status);
+        }
+      } else {
+        console.log("Upload successful:", response);
+      }
+    } catch (error) {
+      console.log("error", error);
+    }
+  };
+
   const delMessages = () => {
     chats = [];
+  };
+
+  export const downloadFile = async (tid) => {
+    const link = `/apiFile/content/File/${tid}`;
+
+    try {
+      const response = await fetch(link, { method: "GET" });
+      if (response.status === 401) {
+        const authHeader = response.headers.get("www-authenticate");
+        console.warn("Server responded with", response.status);
+        console.log("WWW-Authenticate:", authHeader);
+
+        const authRegex = /(\w+)=["]?([^",]+)["]?/g;
+        const authParams = {};
+        let match;
+
+        while ((match = authRegex.exec(authHeader))) {
+          authParams[match[1]] = match[2];
+        }
+
+        const usrname = $sipFormData.phoneNum;
+        const pwd = $sipFormData.password;
+        const uri = `/content/File/${tid}`;
+        const realm = authParams.realm;
+        const nonce = authParams.nonce;
+        const nc = "00000001";
+        const qop = authParams.qop;
+        const opaque = authParams.opaque;
+        const cnonce = Math.random().toString(36).slice(2, 10);
+
+        const ha1 = md5(`${usrname}:${realm}:${pwd}`).toString();
+        const ha2 = md5(`GET:${uri}`).toString();
+        const responseHash = md5(
+          `${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`
+        ).toString();
+
+        const authString = `Digest username="${usrname}", realm="${realm}", nonce="${nonce}", uri="${uri}", response="${responseHash}", opaque="${opaque}", qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
+
+        const finalRes = await fetch(link, {
+          method: "GET",
+          headers: {
+            Authorization: authString,
+          },
+        });
+        if (finalRes.ok) {
+          console.log("Fetching success:", finalRes);
+          const blob = await finalRes.blob();
+          console.log(blob, blob.type);
+
+          const imgURL = URL.createObjectURL(blob);
+          console.log(imgURL);
+          return imgURL;
+        } else {
+          console.error("Final upload failed:", finalRes.status);
+        }
+      } else {
+        console.log("Fetching successful:", response);
+      }
+    } catch (error) {
+      console.log("Failed to fetch Image:", error);
+    }
   };
 
   // Handling D-pad navigation
@@ -53,18 +234,44 @@
       if (msg.trim !== "") {
         msg = msg.slice(0, msg.length - 1);
       }
+    } else if (e.key === "ArrowLeft") {
+      fileref.click();
     } else if (e.key === "ArrowUp") {
       delref.click();
     }
   };
 
-  receiveMsg.subscribe((value) => {
+  receiveMsg.subscribe(async (value) => {
     console.log("receive message has changed", value);
-    if (value) {
-      chats = [...chats, { messagebody: value, className: "receive" }];
+    value = JSON.parse(value);
+    if (value.type === "image") {
+      const img = await downloadFile(value.body);
+      chats = [
+        ...chats,
+        {
+          type: "image",
+          messagebody: img,
+          className: "receive",
+        },
+      ];
+    } else if (value.type === "text") {
+      chats = [
+        ...chats,
+        {
+          type: "text",
+          messagebody: value.body,
+          className: "receive",
+        },
+      ];
     }
   });
 
+  // Auto Scroll
+  afterUpdate(()=>{
+    if(chatContainerRef){
+      chatContainerRef.scrollTop=chatContainerRef.scrollHeight;
+    }
+  })
   // Autofocus Textbox onload
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -101,21 +308,46 @@
   <hr style="color: #999;" />
 
   <!-- chat screen, where the msgs are displayed -->
-  <div class="chatwindow">
+  <div bind:this={chatContainerRef} class="chatwindow">
     {#if chats.length > 0}
-      {#each chats as currentmsg, index}
-        <ChatBubble
-          message={currentmsg.messagebody}
-          className={currentmsg.className === "send"
-            ? "sendBubble"
-            : "receiveBubble"}
-        />
+      {#each chats as currentmsg}
+        {#if currentmsg.type === "image"}
+          <img
+            src={currentmsg.messagebody}
+            alt=""
+            class={currentmsg.className === "send"
+              ? "sendImageBubble"
+              : "receiveImageBubble"}
+          />
+        {:else}
+          <ChatBubble
+            message={currentmsg.messagebody}
+            className={currentmsg.className === "send"
+              ? "sendBubble"
+              : "receiveBubble"}
+          />
+        {/if}
       {/each}
     {/if}
   </div>
 
   <!-- has input text box & send button -->
   <div class="box">
+    <input
+      type="file"
+      style="display:none;"
+      bind:this={fileref}
+      on:change={fileSend}
+      accept="image/*"
+    />
+    <button
+      on:click={() => {
+        fileref.click();
+      }}
+      class="fileBtn"
+    >
+      <i class="fa-solid fa-image"></i>
+    </button>
     <TextBox
       type="text"
       placeholder={"Message..."}

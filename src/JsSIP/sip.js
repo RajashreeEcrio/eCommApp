@@ -2,7 +2,7 @@ import { receiveMsg,  } from "../Store/store";
 
 let ua;
 
-const socket = new JsSIP.WebSocketInterface("ws://192.168.1.26:5066");
+const socket = new JsSIP.WebSocketInterface("ws://192.168.173.217:5066");
 
 export const registerSIP = (data) => {
   return new Promise((resolve, reject) => {

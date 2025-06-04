@@ -77,6 +77,10 @@ export default {
 					from:'/api',
 					to:'https://3.235.250.245:3003'
 				},
+				{
+					from:'/apiFile',
+					to:'http://3.235.250.245:8100'
+				},
 			],
 			host:'0.0.0.0'
 		}),
