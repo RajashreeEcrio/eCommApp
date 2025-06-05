@@ -22,17 +22,6 @@
     textref?.focus();
   };
 
-  const addImageToChats = async () => {
-    const imgURL = await downloadFile("c966d34ee8b25e57");
-    chats = [
-      {
-        type: "image",
-        messagebody: imgURL,
-        className: "receive",
-      },
-    ];
-  };
-
   const generateTid = () => {
     const hex = "0123456789abcdef";
     let tid = "";
@@ -131,7 +120,7 @@
           body: formData,
         });
         if (finalRes.ok) {
-          const xmltext=await finalRes.text();
+          const xmltext = await finalRes.text();
           console.log("Upload success:", finalRes, xmltext);
           // sending SIP message
           sendMessage(
@@ -241,6 +230,23 @@
     }
   };
 
+  const scrollToBottom = (force = false) => {
+    if (!chatContainerRef) return;
+
+    const threshold = 100;
+    const distanceFromBottom =
+      chatContainerRef.scrollHeight -
+      chatContainerRef.scrollTop -
+      chatContainerRef.clientHeight;
+
+    if (force || distanceFromBottom <= threshold) {
+      chatContainerRef.scrollTo({
+        top: chatContainerRef.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  };
+
   receiveMsg.subscribe(async (value) => {
     console.log("receive message has changed", value);
     value = JSON.parse(value);
@@ -267,11 +273,11 @@
   });
 
   // Auto Scroll
-  afterUpdate(()=>{
-    if(chatContainerRef){
-      chatContainerRef.scrollTop=chatContainerRef.scrollHeight;
-    }
-  })
+  afterUpdate(() => {
+    requestAnimationFrame(() => {
+      scrollToBottom();
+    });
+  });
   // Autofocus Textbox onload
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -318,6 +324,7 @@
             class={currentmsg.className === "send"
               ? "sendImageBubble"
               : "receiveImageBubble"}
+            on:load={scrollToBottom}
           />
         {:else}
           <ChatBubble
