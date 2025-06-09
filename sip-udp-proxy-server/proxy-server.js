@@ -4,7 +4,7 @@ const dgram = require("dgram");
 const WS_PORT = 5066; // Port where WebSocket listens
 const UDP_HOST = "192.168.173.217"; // EST tool IP
 const UDP_PORT = 9090; // EST tool UDP port
-const PROXY_PORT = 5060; // SIP Port used for forwarding via UDP
+const PROXY_PORT = 5067; // SIP Port used for forwarding via UDP
 
 const PROXY_HOST = "192.168.173.217";
 
@@ -71,6 +71,6 @@ wss.on("connection", function connection(ws) {
 });
 
 // Bind the UDP socket to listen for incoming messages
-udpSocket.bind(5060, () => {
-  console.log("Proxy listening on UDP port 5060");
+udpSocket.bind(5067, () => {
+  console.log("Proxy listening on UDP port 5067");
 });

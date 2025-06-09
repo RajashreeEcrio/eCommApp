@@ -3,21 +3,111 @@
   import { push } from "svelte-spa-router";
   import ChatBubble from "../../Components/ChatBubble/ChatBubble.svelte";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
-  import { currentContact, receiveMsg, sipFormData } from "../../Store/store";
-  import { sendMessage } from "../../JsSIP/sip";
+  import {
+    updateMessageStatus,
+    messages,
+    currentContact,
+    sipFormData,
+    messageStatusMap,
+  } from "../../Store/store";
+  import { sendImdnReceipt, sendMessage } from "../../JsSIP/sip";
+  import { normalize } from "../../utils/normalize";
   import "./style.css";
   import md5 from "crypto-js/md5";
 
   $: msg = "";
-  let textref;
-  let sendref;
   let fileref;
-  let backref;
-  let delref;
   let chatContainerRef;
   $: chats = [];
+  let textref, sendref, backref, delref;
+  let chats = [];
+  let seenMessages = new Set();
+  let displayedMessages = new Set();
 
-  // Focusing the text box
+  $: statuses = $messageStatusMap;
+
+  $: {
+    const me = normalize($sipFormData.phoneNum);
+    const contact = normalize($currentContact.contact_id);
+
+    chats = $messages
+      .filter(
+        (m) =>
+          (normalize(m.from) === contact && normalize(m.to) === me) ||
+          (normalize(m.from) === me && normalize(m.to) === contact)
+      )
+      .map((m) => {
+        const isFromMe = normalize(m.from) === me;
+        return {
+          messagebody: m.content,
+          className: isFromMe ? "sendBubble" : "receiveBubble",
+          messageId: m.messageId,
+          status: isFromMe
+            ? $messageStatusMap[m.messageId] || "sent"
+            : $messageStatusMap[m.messageId] || "delivered",
+          from: m.from,
+          to: m.to,
+        };
+      });
+    sendDisplayedReceipts();
+  }
+
+  //  Send displayed receipt when message is received and chat screen is open
+  function isMessageVisible(messageId) {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    return (
+      rect.top >= 0 &&
+      rect.bottom <=
+        (window.innerHeight || document.documentElement.clientHeight)
+    );
+  }
+
+  // Function to send displayed receipts for all eligible messages
+  function sendDisplayedReceipts() {
+    const me = normalize($sipFormData.phoneNum);
+    const contact = normalize($currentContact.contact_id);
+
+    chats.forEach((msg) => {
+      const isIncoming = normalize(msg.from) === contact;
+      const isDelivered = msg.status === "delivered";
+      const notYetDisplayed = !displayedMessages.has(msg.messageId);
+      const isVisible = isMessageVisible(msg.messageId);
+
+      if (isIncoming && isDelivered && notYetDisplayed && isVisible) {
+        console.log("[DISPLAYED SENT]", msg.messageId);
+        displayedMessages.add(msg.messageId);
+        sendImdnReceipt(
+          `sip:${msg.from}@ecrio.com`,
+          msg.messageId,
+          "displayed"
+        );
+        console.log("[IMDN] Displayed receipt sent:", msg.messageId);
+      }
+    });
+  }
+
+  onMount(() => {
+    // Initial check after UI renders
+    setTimeout(sendDisplayedReceipts, 300);
+
+    // Check when scrolling
+    const chatWindow = document.querySelector(".chatwindow");
+    if (chatWindow)
+      chatWindow.addEventListener("scroll", sendDisplayedReceipts);
+
+    return () => {
+      if (chatWindow)
+        chatWindow.removeEventListener("scroll", sendDisplayedReceipts);
+    };
+  });
+
+  // Check when messages change
+  $: if ($messages) {
+    setTimeout(sendDisplayedReceipts, 100);
+  }
+
   const handleTextFocus = () => {
     textref?.focus();
   };
@@ -45,8 +135,9 @@
   };
 
   const messageSend = () => {
-    if (msg.trim() === "") {
+    if (!msg.trim()) {
       alert("Message can't be empty");
+      return handleTextFocus();
     } else {
       let mArray = [...chats];
       mArray.push({
@@ -62,6 +153,14 @@
       chats = mArray;
       msg = "";
     }
+
+    const messageId = sendMessage(
+      $currentContact.contact_id,
+      msg,
+      $sipFormData.phoneNum
+    );
+
+    msg = "";
     handleTextFocus();
   };
 
@@ -149,7 +248,17 @@
   };
 
   const delMessages = () => {
-    chats = [];
+    messages.update((msgs) =>
+      msgs.filter(
+        (m) =>
+          !(
+            (normalize(m.from) === normalize($currentContact.contact_id) &&
+              normalize(m.to) === normalize($sipFormData.phoneNum)) ||
+            (normalize(m.to) === normalize($currentContact.contact_id) &&
+              normalize(m.from) === normalize($sipFormData.phoneNum))
+          )
+      )
+    );
   };
 
   export const downloadFile = async (tid) => {
@@ -289,30 +398,42 @@
 </script>
 
 <div class="screen">
-  <!-- header that has username & number -->
+  <!-- Header -->
   <div class="header">
     <div class="leftbox">
       <button
         bind:this={backref}
         class="back"
-        tabIndex="0"
         on:click={() => push("/contacts")}
       >
         <i class="fa-solid fa-arrow-left"></i>
       </button>
       <div class="uname">
-        <h4 style={{ color: "#fff" }}>{$currentContact.contact_name}</h4>
-        <h6 style={{ color: "#fff" }}>{$currentContact.contact_id}</h6>
+        <h4>{$currentContact.contact_name}</h4>
+        <h6>{$currentContact.contact_id}</h6>
       </div>
     </div>
-    {#if chats.length > 0}
+    {#if chats.length}
       <button bind:this={delref} class="del" on:click={delMessages}>
         <i class="fa-solid fa-trash"></i>
       </button>
     {/if}
   </div>
-  <hr style="color: #999;" />
+  <hr />
 
+  <!-- Chat window -->
+  <div class="chatwindow">
+    {#each chats as currentmsg}
+      <ChatBubble
+        id={"msg-" + currentmsg.messageId}
+        message={currentmsg.messagebody}
+        className={currentmsg.className}
+        status={currentmsg.className === "sendBubble"
+          ? statuses[currentmsg.messageId] || "sent"
+          : ""}
+      />
+    {/each}
+  </div>
   <!-- chat screen, where the msgs are displayed -->
   <div bind:this={chatContainerRef} class="chatwindow">
     {#if chats.length > 0}
@@ -338,7 +459,7 @@
     {/if}
   </div>
 
-  <!-- has input text box & send button -->
+  <!-- Input box -->
   <div class="box">
     <input
       type="file"
@@ -355,14 +476,7 @@
     >
       <i class="fa-solid fa-image"></i>
     </button>
-    <TextBox
-      type="text"
-      placeholder={"Message..."}
-      className="textbox"
-      onInput={(e) => (msg = e.target.value)}
-      value={msg}
-      bind:ref={textref}
-    />
+    <TextBox placeholder="Message..." bind:value={msg} bind:ref={textref} />
     <button bind:this={sendref} on:click={messageSend} class="sendBtn">
       <i class="fa-solid fa-paper-plane"></i>
     </button>
