@@ -22,7 +22,7 @@
 .textbox {
   padding: 2vh 1vw 2vh 3vw;
   border-radius: 0.8rem;
-  width: 78%;
+  width: 67%;
   border: none;
   outline: none;
   background: rgba(30, 153, 208, 0.85);
@@ -58,7 +58,8 @@
   flex-direction: column;
   align-items: flex-start;
 }
-.sendBtn {
+.sendBtn,
+.fileBtn {
   padding: 3vw;
   border-radius: 50%;
   border: none;
@@ -67,6 +68,12 @@
   justify-content: center;
   align-items: center;
   background-color: lime;
+}
+.fileBtn > i {
+  position: relative;
+  top: 0.03vh;
+  right: 0.05vw;
+  font-size: 0.88rem;
 }
 i {
   color: #fff;
@@ -98,4 +105,17 @@ i {
   background-color: rgba(1, 53, 99, 0.846);
   color: #fff;
   align-self: flex-start;
+}
+
+.sendImageBubble {
+  height: 100px;
+  width: 100px;
+  align-self: flex-end;
+  margin: 2vh 3vw;  
+}
+.receiveImageBubble {
+  height: 100px;
+  width: 100px;
+  align-self: flex-start;
+  margin: 2vh 3vw;  
 }

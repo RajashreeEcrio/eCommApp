@@ -2,7 +2,8 @@ import { messages, addMessage, updateMessageStatus } from "../Store/store";
 import { normalize } from "../utils/normalize.js";
 
 let ua;
-const socket = new JsSIP.WebSocketInterface("ws://192.168.1.71:5066");
+
+const socket = new JsSIP.WebSocketInterface("ws://192.168.173.217:5066");
 
 export const registerSIP = (data) => {
   return new Promise((resolve, reject) => {
