@@ -1,7 +1,10 @@
-import { messages, addMessage, updateMessageStatus } from "../Store/store";
+import { get } from "svelte/store";
+import { addMessage, updateMessageStatus, sipFormData } from "../Store/store";
 import { normalize } from "../utils/normalize.js";
+import SparkMD5 from "spark-md5";
 
 let ua;
+// const { phoneNum, password } = get(sipFormData);
 
 const socket = new JsSIP.WebSocketInterface("ws://192.168.173.217:5066");
 
@@ -47,7 +50,7 @@ const generateContributionId = () => {
   return id;
 };
 
-export const sendMessage = (to, message, senderUri) => {
+export const sendMessage = (to, message, senderUri, type, image) => {
   if (!ua) {
     console.log("[sendMessage] SIP UA not initialized");
     return;
@@ -74,7 +77,7 @@ export const sendMessage = (to, message, senderUri) => {
       `P-Preferred-Identity: <sip:${senderUri}@ecrio.com>`,
       'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.1.71:9090;lr>",
+      "Route: <sip:192.168.173.217:9090;lr>",
       `Conversation-ID: ${contributionId}`,
       `Contribution-ID: ${contributionId}`,
     ],
@@ -83,14 +86,27 @@ export const sendMessage = (to, message, senderUri) => {
   const target = `sip:${to}@ecrio.com`;
   ua.sendMessage(target, cpimBody, messageOptions);
 
-  addMessage({
-    from: normalize(senderUri),
-    to: normalize(to),
-    content: message,
-    datetime: now,
-    messageId: contributionId,
-    status: "sent",
-  });
+  if (type === "image") {
+    addMessage({
+      from: normalize(senderUri),
+      to: normalize(to),
+      content: image,
+      datetime: now,
+      messageId: contributionId,
+      status: "sent",
+      type: type,
+    });
+  } else {
+    addMessage({
+      from: normalize(senderUri),
+      to: normalize(to),
+      content: message,
+      datetime: now,
+      messageId: contributionId,
+      status: "sent",
+      type: type,
+    });
+  }
 
   return contributionId;
 };
@@ -120,7 +136,7 @@ export const sendImdnReceipt = (toUri, messageId, status = "delivered") => {
       'Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg";require;explicit',
       'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.1.71:9090;lr>",
+      "Route: <sip:192.168.173.217:9090;lr>",
     ],
   };
 
@@ -129,7 +145,18 @@ export const sendImdnReceipt = (toUri, messageId, status = "delivered") => {
 
 const parseCpimBody = (body) => {
   const contentMatch = body.match(/TEXT:::-:::(.*)/s);
-  const content = contentMatch ? contentMatch[1].trim() : null;
+  let content = contentMatch ? contentMatch[1].trim() : null;
+
+  const typeCheck = /^\[image:([a-f0-9]{16})\]$/;
+  let type = "text";
+
+  if (typeof content === "string") {
+    const match = content.match(typeCheck);
+    if (match) {
+      content = match[1];
+      type = "image";
+    }
+  }
 
   const fromMatch = body.match(/^From:\s*<sip:([^>]+)>/m);
   const from = fromMatch ? fromMatch[1].trim() : null;
@@ -143,38 +170,115 @@ const parseCpimBody = (body) => {
   const messageIdMatch = body.match(/^imdn\.Message-ID:\s*(.+)$/m);
   const messageId = messageIdMatch ? messageIdMatch[1].trim() : null;
 
+  console.log({
+    from: normalize(from),
+    to: normalize(to),
+    datetime,
+    content,
+    messageId,
+  });
+
   return {
     from: normalize(from),
     to: normalize(to),
     datetime,
     content,
     messageId,
+    type: type,
   };
 };
 
-const initializeReceive = (uaInstance, myPhoneNum) => {
-  uaInstance.on("newMessage", (e) => {
+const downloadFile = async (tid) => {
+  const link = `/apiFile/content/File/${tid}`;
+  const { phoneNum: usrname, password: pwd } = get(sipFormData);
+  console.log("==================>", usrname, pwd);
+
+  try {
+    const response = await fetch(link, { method: "GET" });
+    if (response.status === 401) {
+      const authHeader = response.headers.get("www-authenticate");
+      console.warn("Server responded with", response.status);
+      console.log("WWW-Authenticate:", authHeader);
+
+      const authRegex = /(\w+)=["]?([^",]+)["]?/g;
+      const authParams = {};
+      let match;
+
+      while ((match = authRegex.exec(authHeader))) {
+        authParams[match[1]] = match[2];
+      }
+
+      // const usrname = phoneNum;
+      // const pwd = password;
+      const uri = `/content/File/${tid}`;
+      const realm = authParams.realm;
+      const nonce = authParams.nonce;
+      const nc = "00000001";
+      const qop = authParams.qop;
+      const opaque = authParams.opaque;
+      const cnonce = Math.random().toString(36).slice(2, 10);
+
+      const ha1 = SparkMD5.hash(`${usrname}:${realm}:${pwd}`);
+      const ha2 = SparkMD5.hash(`GET:${uri}`);
+      const responseHash = SparkMD5.hash(
+        `${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`
+      );
+
+      const authString = `Digest username="${usrname}", realm="${realm}", nonce="${nonce}", uri="${uri}", response="${responseHash}", opaque="${opaque}", qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
+      console.log(authString);
+
+      const finalRes = await fetch(link, {
+        method: "GET",
+        headers: {
+          Authorization: authString,
+        },
+      });
+      if (finalRes.ok) {
+        console.log("Fetching success:", finalRes);
+        const blob = await finalRes.blob();
+        console.log(blob, blob.type);
+
+        const imgURL = URL.createObjectURL(blob);
+        console.log(imgURL);
+        return imgURL;
+      } else {
+        console.error("Final upload failed:", finalRes.status);
+      }
+    } else {
+      console.log("Fetching successful:", response);
+    }
+  } catch (error) {
+    console.log("Failed to fetch Image:", error);
+  }
+};
+
+const initializeReceive = (uaInstance) => {
+  uaInstance.on("newMessage", async (e) => {
     if (e.originator !== "remote") return;
 
     const rawBody = e.request.body;
     const contentType = e.request.getHeader("Content-Type");
     const myUser = uaInstance?.configuration?.uri?.user;
 
-   // In initializeReceive function, modify the IMDN handling:
-if (contentType.includes("application/imdn+xml")) {
-  const messageId = rawBody.match(/<message-id>([^<]+)<\/message-id>/)?.[1]?.trim();
-  const status = rawBody.match(/<status>([^<]+)<\/status>/)?.[1]?.trim()?.toLowerCase();
+    // In initializeReceive function, modify the IMDN handling:
+    if (contentType.includes("application/imdn+xml")) {
+      const messageId = rawBody
+        .match(/<message-id>([^<]+)<\/message-id>/)?.[1]
+        ?.trim();
+      const status = rawBody
+        .match(/<status>([^<]+)<\/status>/)?.[1]
+        ?.trim()
+        ?.toLowerCase();
 
-  if (messageId && status) {
-    if (status === "delivered") {
-      updateMessageStatus(messageId, "delivered");
-    } else if (status === "displayed") {
-      updateMessageStatus(messageId, "read");
+      if (messageId && status) {
+        if (status === "delivered") {
+          updateMessageStatus(messageId, "delivered");
+        } else if (status === "displayed") {
+          updateMessageStatus(messageId, "read");
+        }
+      }
+      return; // Skip further processing for IMDN
     }
-  }
-  return; // Skip further processing for IMDN
-}
-
 
     const parsed = parseCpimBody(rawBody);
     const from = parsed.from;
@@ -186,14 +290,28 @@ if (contentType.includes("application/imdn+xml")) {
 
     const msgId = parsed.messageId || generateContributionId();
 
-    addMessage({
-      from,
-      to,
-      content: parsed.content,
-      datetime: parsed.datetime,
-      messageId: msgId,
-      status: "received",
-    });
+    if (parsed.type === "image") {
+      const img = await downloadFile(parsed.content);
+      addMessage({
+        from,
+        to,
+        content: img,
+        datetime: parsed.datetime,
+        messageId: msgId,
+        status: "received",
+        type: parsed.type,
+      });
+    } else {
+      addMessage({
+        from,
+        to,
+        content: parsed.content,
+        datetime: parsed.datetime,
+        messageId: msgId,
+        status: "received",
+        type: parsed.type,
+      });
+    }
 
     // Auto-send IMDN receipt
     if (from && msgId) {

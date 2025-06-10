@@ -4,16 +4,16 @@
   import ChatBubble from "../../Components/ChatBubble/ChatBubble.svelte";
   import TextBox from "../../Components/TextBox/TextBox.svelte";
   import {
-    updateMessageStatus,
     messages,
     currentContact,
     sipFormData,
     messageStatusMap,
+    receiveMsg,
   } from "../../Store/store";
   import { sendImdnReceipt, sendMessage } from "../../JsSIP/sip";
   import { normalize } from "../../utils/normalize";
   import "./style.css";
-  import md5 from "crypto-js/md5";
+  import SparkMD5 from "spark-md5";
 
   $: msg = "";
   let fileref;
@@ -21,7 +21,6 @@
   $: chats = [];
   let textref, sendref, backref, delref;
   let chats = [];
-  let seenMessages = new Set();
   let displayedMessages = new Set();
 
   $: statuses = $messageStatusMap;
@@ -47,9 +46,13 @@
             : $messageStatusMap[m.messageId] || "delivered",
           from: m.from,
           to: m.to,
+          type: m.type,
         };
       });
     sendDisplayedReceipts();
+  }
+  $: {
+    console.log("chats", chats);
   }
 
   //  Send displayed receipt when message is received and chat screen is open
@@ -147,18 +150,15 @@
       });
       sendMessage(
         $currentContact.contact_id,
-        JSON.stringify({ type: "text", body: msg }),
-        $sipFormData.phoneNum
+        msg,
+        $sipFormData.phoneNum,
+        "text"
       );
+      console.log(mArray);
+
       chats = mArray;
       msg = "";
     }
-
-    const messageId = sendMessage(
-      $currentContact.contact_id,
-      msg,
-      $sipFormData.phoneNum
-    );
 
     msg = "";
     handleTextFocus();
@@ -203,11 +203,11 @@
         const opaque = authParams.opaque;
         const cnonce = Math.random().toString(36).slice(2, 10);
 
-        const ha1 = md5(`${usrname}:${realm}:${pwd}`).toString();
-        const ha2 = md5(`POST:${uri}`).toString();
-        const responseHash = md5(
+        const ha1 = SparkMD5.hash(`${usrname}:${realm}:${pwd}`);
+        const ha2 = SparkMD5.hash(`POST:${uri}`);
+        const responseHash = SparkMD5.hash(
           `${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`
-        ).toString();
+        );
 
         const authString = `Digest username="${usrname}", realm="${realm}", nonce="${nonce}", uri="${uri}", response="${responseHash}", opaque="${opaque}", qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
 
@@ -224,11 +224,10 @@
           // sending SIP message
           sendMessage(
             $currentContact.contact_id,
-            JSON.stringify({
-              type: "image",
-              body: extractTidfromXML(xmltext),
-            }),
-            $sipFormData.phoneNum
+            `[image:${extractTidfromXML(xmltext)}]`,
+            $sipFormData.phoneNum,
+            "image",
+            file64
           );
           mArray.push({
             type: "image",
@@ -259,67 +258,6 @@
           )
       )
     );
-  };
-
-  export const downloadFile = async (tid) => {
-    const link = `/apiFile/content/File/${tid}`;
-
-    try {
-      const response = await fetch(link, { method: "GET" });
-      if (response.status === 401) {
-        const authHeader = response.headers.get("www-authenticate");
-        console.warn("Server responded with", response.status);
-        console.log("WWW-Authenticate:", authHeader);
-
-        const authRegex = /(\w+)=["]?([^",]+)["]?/g;
-        const authParams = {};
-        let match;
-
-        while ((match = authRegex.exec(authHeader))) {
-          authParams[match[1]] = match[2];
-        }
-
-        const usrname = $sipFormData.phoneNum;
-        const pwd = $sipFormData.password;
-        const uri = `/content/File/${tid}`;
-        const realm = authParams.realm;
-        const nonce = authParams.nonce;
-        const nc = "00000001";
-        const qop = authParams.qop;
-        const opaque = authParams.opaque;
-        const cnonce = Math.random().toString(36).slice(2, 10);
-
-        const ha1 = md5(`${usrname}:${realm}:${pwd}`).toString();
-        const ha2 = md5(`GET:${uri}`).toString();
-        const responseHash = md5(
-          `${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`
-        ).toString();
-
-        const authString = `Digest username="${usrname}", realm="${realm}", nonce="${nonce}", uri="${uri}", response="${responseHash}", opaque="${opaque}", qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
-
-        const finalRes = await fetch(link, {
-          method: "GET",
-          headers: {
-            Authorization: authString,
-          },
-        });
-        if (finalRes.ok) {
-          console.log("Fetching success:", finalRes);
-          const blob = await finalRes.blob();
-          console.log(blob, blob.type);
-
-          const imgURL = URL.createObjectURL(blob);
-          console.log(imgURL);
-          return imgURL;
-        } else {
-          console.error("Final upload failed:", finalRes.status);
-        }
-      } else {
-        console.log("Fetching successful:", response);
-      }
-    } catch (error) {
-      console.log("Failed to fetch Image:", error);
-    }
   };
 
   // Handling D-pad navigation
@@ -358,27 +296,35 @@
 
   receiveMsg.subscribe(async (value) => {
     console.log("receive message has changed", value);
-    value = JSON.parse(value);
-    if (value.type === "image") {
-      const img = await downloadFile(value.body);
-      chats = [
-        ...chats,
-        {
-          type: "image",
-          messagebody: img,
-          className: "receive",
-        },
-      ];
-    } else if (value.type === "text") {
-      chats = [
-        ...chats,
-        {
-          type: "text",
-          messagebody: value.body,
-          className: "receive",
-        },
-      ];
-    }
+    chats = [
+      ...chats,
+      {
+        type: "text",
+        messagebody: value,
+        className: "receive",
+      },
+    ];
+    // value = JSON.parse(value);
+    // if (value.type === "image") {
+    //   const img = await downloadFile(value.body);
+    //   chats = [
+    //     ...chats,
+    //     {
+    //       type: "image",
+    //       messagebody: img,
+    //       className: "receive",
+    //     },
+    //   ];
+    // } else if (value.type === "text") {
+    //   chats = [
+    //     ...chats,
+    //     {
+    //       type: "text",
+    //       messagebody: value.body,
+    //       className: "receive",
+    //     },
+    //   ];
+    // }
   });
 
   // Auto Scroll
@@ -424,18 +370,29 @@
   <!-- Chat window -->
   <div class="chatwindow">
     {#each chats as currentmsg}
-      <ChatBubble
-        id={"msg-" + currentmsg.messageId}
-        message={currentmsg.messagebody}
-        className={currentmsg.className}
-        status={currentmsg.className === "sendBubble"
-          ? statuses[currentmsg.messageId] || "sent"
-          : ""}
-      />
+      {#if currentmsg.type === "image"}
+        <img
+          src={currentmsg.messagebody}
+          alt=""
+          class={currentmsg.className === "sendBubble"
+            ? "sendImageBubble"
+            : "receiveImageBubble"}
+          on:load={scrollToBottom}
+        />
+      {:else}
+        <ChatBubble
+          id={"msg-" + currentmsg.messageId}
+          message={currentmsg.messagebody}
+          className={currentmsg.className}
+          status={currentmsg.className === "sendBubble"
+            ? statuses[currentmsg.messageId] || "sent"
+            : ""}
+        />
+      {/if}
     {/each}
   </div>
   <!-- chat screen, where the msgs are displayed -->
-  <div bind:this={chatContainerRef} class="chatwindow">
+  <!-- <div bind:this={chatContainerRef} class="chatwindow">
     {#if chats.length > 0}
       {#each chats as currentmsg}
         {#if currentmsg.type === "image"}
@@ -449,15 +406,19 @@
           />
         {:else}
           <ChatBubble
+            id={"msg-" + currentmsg.messageId}
             message={currentmsg.messagebody}
             className={currentmsg.className === "send"
               ? "sendBubble"
               : "receiveBubble"}
+            status={currentmsg.className === "sendBubble"
+              ? statuses[currentmsg.messageId] || "sent"
+              : ""}
           />
         {/if}
       {/each}
     {/if}
-  </div>
+  </div> -->
 
   <!-- Input box -->
   <div class="box">

@@ -1,8 +1,5 @@
 import { writable } from "svelte/store";
-import { normalize } from '../utils/normalize';
-
-
-
+import { normalize } from "../utils/normalize";
 
 // Current active contact
 export const currentContact = writable({});
@@ -20,6 +17,8 @@ export const sipFormData = writable({
   port: "",
 });
 
+export let receiveMsg = writable("");
+
 // Map messageId → status for quick status lookup (optional)
 export const messageStatusMap = writable({});
 
@@ -31,6 +30,7 @@ export const addMessage = (msg) => {
     from: normalize(msg.from),
     to: normalize(msg.to),
   };
+  console.log(normalizedMsg);
 
   messages.update((msgs) => {
     if (msgs.find((m) => m.messageId === normalizedMsg.messageId)) {
@@ -40,19 +40,21 @@ export const addMessage = (msg) => {
   });
 };
 
-
 // Update the status of a message by messageId
 // Also sync status in messageStatusMap
 export const updateMessageStatus = (messageId, status) => {
   let updated = false;
-  
+
   messages.update((msgs) =>
     msgs.map((msg) => {
       if (msg.messageId === messageId) {
         // Only allow status to progress forward
-        if ((msg.status === "sent" && (status === "delivered" || status === "read")) ||
-            (msg.status === "delivered" && status === "read") ||
-            (msg.status === undefined)) {
+        if (
+          (msg.status === "sent" &&
+            (status === "delivered" || status === "read")) ||
+          (msg.status === "delivered" && status === "read") ||
+          msg.status === undefined
+        ) {
           updated = true;
           return { ...msg, status };
         }
@@ -68,9 +70,15 @@ export const updateMessageStatus = (messageId, status) => {
       return newMap;
     });
   } else {
-    console.warn("IMDN received but messageId not found or invalid status transition:", messageId, "Current:", msg.status, "Attempted:", status);
+    console.warn(
+      "IMDN received but messageId not found or invalid status transition:",
+      messageId,
+      "Current:",
+      msg.status,
+      "Attempted:",
+      status
+    );
   }
-
   return updated;
 };
 // Clear all messages related to a specific contactId (either sender or receiver)
@@ -78,9 +86,7 @@ export const clearMessagesForContact = (contactId) => {
   messages.update((msgs) =>
     msgs.filter(
       (msg) =>
-        normalize(msg.from) !== contactId &&
-        normalize(msg.to) !== contactId
+        normalize(msg.from) !== contactId && normalize(msg.to) !== contactId
     )
   );
 };
-
