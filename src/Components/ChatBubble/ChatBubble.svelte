@@ -5,7 +5,7 @@
   export let status = ""; // "sent", "delivered", "read"
 </script>
 
-<div id={id} class={"chat-bubble " + className}>
+<div {id} class={"chat-bubble " + className}>
   <div class="content">
     <span class="msg">{message}</span>
 
@@ -22,7 +22,6 @@
     {/if}
   </div>
 </div>
-
 
 <style>
   .chat-bubble {
@@ -46,14 +45,14 @@
 
   .sendBubble {
     align-self: flex-end;
-    background-color: rgba(92, 128, 0, 0.924);
+    background: rgba(92, 128, 0, 0.924);
     color: white;
     border-top-right-radius: 0;
   }
 
   .receiveBubble {
     align-self: flex-start;
-    background-color: rgb(54 137 202);
+    background: rgba(54, 137, 202, 1);
     color: #fff;
     border-top-left-radius: 0;
   }
@@ -65,7 +64,7 @@
   }
 
   .blue-ticks {
-    color: #00eaff;
+    color: rgba(0, 234, 255, 1);
   }
 
   .msg {
