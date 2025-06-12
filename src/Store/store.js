@@ -29,7 +29,6 @@ export const addMessage = (msg) => {
     from: normalize(msg.from),
     to: normalize(msg.to),
   };
-  console.log(normalizedMsg);
 
   messages.update((msgs) => {
     if (msgs.find((m) => m.messageId === normalizedMsg.messageId)) {
@@ -65,7 +64,7 @@ export const updateMessageStatus = (messageId, status) => {
   if (updated) {
     messageStatusMap.update((map) => {
       const newMap = { ...map, [messageId]: status };
-      console.log("IMDN RECEIPT RECEIVED: Status updated", newMap);
+      
       return newMap;
     });
   } else {

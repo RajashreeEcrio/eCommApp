@@ -4,9 +4,8 @@ import { normalize } from "../utils/normalize.js";
 import SparkMD5 from "spark-md5";
 
 let ua;
-// const { phoneNum, password } = get(sipFormData);
 
-const socket = new JsSIP.WebSocketInterface("ws://192.168.173.217:5066");
+const socket = new JsSIP.WebSocketInterface("ws://192.168.227.217:5066");
 
 export const registerSIP = (data) => {
   return new Promise((resolve, reject) => {
@@ -77,7 +76,7 @@ export const sendMessage = (to, message, senderUri, type, image) => {
       `P-Preferred-Identity: <sip:${senderUri}@ecrio.com>`,
       'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.173.217:9090;lr>",
+      "Route: <sip:192.168.227.217:9090;lr>",
       `Conversation-ID: ${contributionId}`,
       `Contribution-ID: ${contributionId}`,
     ],
@@ -136,7 +135,7 @@ export const sendImdnReceipt = (toUri, messageId, status = "delivered") => {
       'Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg";require;explicit',
       'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.173.217:9090;lr>",
+      "Route: <sip:192.168.227.217:9090;lr>",
     ],
   };
 
@@ -170,14 +169,6 @@ const parseCpimBody = (body) => {
   const messageIdMatch = body.match(/^imdn\.Message-ID:\s*(.+)$/m);
   const messageId = messageIdMatch ? messageIdMatch[1].trim() : null;
 
-  console.log({
-    from: normalize(from),
-    to: normalize(to),
-    datetime,
-    content,
-    messageId,
-  });
-
   return {
     from: normalize(from),
     to: normalize(to),
@@ -191,7 +182,6 @@ const parseCpimBody = (body) => {
 const downloadFile = async (tid) => {
   const link = `/apiFile/content/File/${tid}`;
   const { phoneNum: usrname, password: pwd } = get(sipFormData);
-  console.log("==================>", usrname, pwd);
 
   try {
     const response = await fetch(link, { method: "GET" });
@@ -208,8 +198,6 @@ const downloadFile = async (tid) => {
         authParams[match[1]] = match[2];
       }
 
-      // const usrname = phoneNum;
-      // const pwd = password;
       const uri = `/content/File/${tid}`;
       const realm = authParams.realm;
       const nonce = authParams.nonce;
@@ -234,12 +222,10 @@ const downloadFile = async (tid) => {
         },
       });
       if (finalRes.ok) {
-        console.log("Fetching success:", finalRes);
         const blob = await finalRes.blob();
-        console.log(blob, blob.type);
 
         const imgURL = URL.createObjectURL(blob);
-        console.log(imgURL);
+        
         return imgURL;
       } else {
         console.error("Final upload failed:", finalRes.status);

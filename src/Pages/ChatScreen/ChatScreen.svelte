@@ -50,9 +50,6 @@
       });
     sendDisplayedReceipts();
   }
-  $: {
-    console.log("chats", chats);
-  }
 
   //  Send displayed receipt when message is received and chat screen is open
   function isMessageVisible(messageId) {
@@ -78,14 +75,12 @@
       const isVisible = isMessageVisible(msg.messageId);
 
       if (isIncoming && isDelivered && notYetDisplayed && isVisible) {
-        console.log("[DISPLAYED SENT]", msg.messageId);
         displayedMessages.add(msg.messageId);
         sendImdnReceipt(
           `sip:${msg.from}@ecrio.com`,
           msg.messageId,
           "displayed"
         );
-        console.log("[IMDN] Displayed receipt sent:", msg.messageId);
       }
     });
   }
@@ -126,22 +121,12 @@
       alert("Message can't be empty");
       return handleTextFocus();
     } else {
-      let mArray = [...chats];
-      mArray.push({
-        type: "text",
-        messagebody: msg,
-        className: "send",
-      });
       sendMessage(
         $currentContact.contact_id,
         msg,
         $sipFormData.phoneNum,
         "text"
       );
-      console.log(mArray);
-
-      chats = mArray;
-      msg = "";
     }
 
     msg = "";
@@ -150,7 +135,6 @@
 
   const fileSend = async (e) => {
     const file = e.target.files[0];
-    let mArray = [...chats];
     let file64 = URL.createObjectURL(file);
     const link = "/apiFile/api/v1/content";
 
@@ -204,7 +188,7 @@
         });
         if (finalRes.ok) {
           const xmltext = await finalRes.text();
-          console.log("Upload success:", finalRes, xmltext);
+          
           // sending SIP message
           sendMessage(
             $currentContact.contact_id,
@@ -213,12 +197,6 @@
             "image",
             file64
           );
-          mArray.push({
-            type: "image",
-            messagebody: file64,
-            className: "send",
-          });
-          chats = mArray;
         } else {
           console.error("Final upload failed:", finalRes.status);
         }
@@ -298,7 +276,7 @@
 
     window.addEventListener("keydown", handleKeyDown);
     handleTextFocus();
-    
+
     return () => {
       if (chatWindow) {
         chatWindow.removeEventListener("scroll", sendDisplayedReceipts);

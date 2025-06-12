@@ -2,11 +2,11 @@ const WebSocket = require("ws");
 const dgram = require("dgram");
 
 const WS_PORT = 5066; // Port where WebSocket listens
-const UDP_HOST = "192.168.173.217"; // EST tool IP
+const UDP_HOST = "192.168.227.217"; // EST tool IP
 const UDP_PORT = 9090; // EST tool UDP port
 const PROXY_PORT = 5067; // SIP Port used for forwarding via UDP
 
-const PROXY_HOST = "192.168.173.217";
+const PROXY_HOST = "192.168.227.217";
 
 const udpSocket = dgram.createSocket("udp4");
 const wss = new WebSocket.Server({ port: WS_PORT });
