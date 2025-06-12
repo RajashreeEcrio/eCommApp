@@ -17,7 +17,6 @@ export const sipFormData = writable({
   port: "",
 });
 
-export let receiveMsg = writable("");
 
 // Map messageId → status for quick status lookup (optional)
 export const messageStatusMap = writable({});

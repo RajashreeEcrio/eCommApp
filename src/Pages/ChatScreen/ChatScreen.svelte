@@ -8,7 +8,6 @@
     currentContact,
     sipFormData,
     messageStatusMap,
-    receiveMsg,
   } from "../../Store/store";
   import { sendImdnReceipt, sendMessage } from "../../JsSIP/sip";
   import { normalize } from "../../utils/normalize";
@@ -90,21 +89,6 @@
       }
     });
   }
-
-  onMount(() => {
-    // Initial check after UI renders
-    setTimeout(sendDisplayedReceipts, 300);
-
-    // Check when scrolling
-    const chatWindow = document.querySelector(".chatwindow");
-    if (chatWindow)
-      chatWindow.addEventListener("scroll", sendDisplayedReceipts);
-
-    return () => {
-      if (chatWindow)
-        chatWindow.removeEventListener("scroll", sendDisplayedReceipts);
-    };
-  });
 
   // Check when messages change
   $: if ($messages) {
@@ -294,50 +278,31 @@
     }
   };
 
-  receiveMsg.subscribe(async (value) => {
-    console.log("receive message has changed", value);
-    chats = [
-      ...chats,
-      {
-        type: "text",
-        messagebody: value,
-        className: "receive",
-      },
-    ];
-    // value = JSON.parse(value);
-    // if (value.type === "image") {
-    //   const img = await downloadFile(value.body);
-    //   chats = [
-    //     ...chats,
-    //     {
-    //       type: "image",
-    //       messagebody: img,
-    //       className: "receive",
-    //     },
-    //   ];
-    // } else if (value.type === "text") {
-    //   chats = [
-    //     ...chats,
-    //     {
-    //       type: "text",
-    //       messagebody: value.body,
-    //       className: "receive",
-    //     },
-    //   ];
-    // }
-  });
-
   // Auto Scroll
   afterUpdate(() => {
     requestAnimationFrame(() => {
       scrollToBottom();
     });
   });
+
   // Autofocus Textbox onload
   onMount(() => {
+    // Initial check after UI renders
+    setTimeout(sendDisplayedReceipts, 300);
+
+    // Check when scrolling
+    const chatWindow = document.querySelector(".chatwindow");
+    if (chatWindow) {
+      chatWindow.addEventListener("scroll", sendDisplayedReceipts);
+    }
+
     window.addEventListener("keydown", handleKeyDown);
     handleTextFocus();
+    
     return () => {
+      if (chatWindow) {
+        chatWindow.removeEventListener("scroll", sendDisplayedReceipts);
+      }
       window.removeEventListener("keydown", handleKeyDown);
     };
   });
@@ -391,34 +356,6 @@
       {/if}
     {/each}
   </div>
-  <!-- chat screen, where the msgs are displayed -->
-  <!-- <div bind:this={chatContainerRef} class="chatwindow">
-    {#if chats.length > 0}
-      {#each chats as currentmsg}
-        {#if currentmsg.type === "image"}
-          <img
-            src={currentmsg.messagebody}
-            alt=""
-            class={currentmsg.className === "send"
-              ? "sendImageBubble"
-              : "receiveImageBubble"}
-            on:load={scrollToBottom}
-          />
-        {:else}
-          <ChatBubble
-            id={"msg-" + currentmsg.messageId}
-            message={currentmsg.messagebody}
-            className={currentmsg.className === "send"
-              ? "sendBubble"
-              : "receiveBubble"}
-            status={currentmsg.className === "sendBubble"
-              ? statuses[currentmsg.messageId] || "sent"
-              : ""}
-          />
-        {/if}
-      {/each}
-    {/if}
-  </div> -->
 
   <!-- Input box -->
   <div class="box">
@@ -437,7 +374,14 @@
     >
       <i class="fa-solid fa-image"></i>
     </button>
-    <TextBox placeholder="Message..." bind:value={msg} bind:ref={textref} />
+    <TextBox
+      type="text"
+      placeholder={"Message..."}
+      className="textbox"
+      onInput={(e) => (msg = e.target.value)}
+      value={msg}
+      bind:ref={textref}
+    />
     <button bind:this={sendref} on:click={messageSend} class="sendBtn">
       <i class="fa-solid fa-paper-plane"></i>
     </button>

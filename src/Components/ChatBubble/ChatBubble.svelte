@@ -46,15 +46,15 @@
 
   .sendBubble {
     align-self: flex-end;
-    background-color: #007aff;
+    background-color: rgba(92, 128, 0, 0.924);
     color: white;
     border-top-right-radius: 0;
   }
 
   .receiveBubble {
     align-self: flex-start;
-    background-color: #e5e5ea;
-    color: black;
+    background-color: rgb(54 137 202);
+    color: #fff;
     border-top-left-radius: 0;
   }
 
@@ -65,7 +65,7 @@
   }
 
   .blue-ticks {
-    color: #00bfff;
+    color: #00eaff;
   }
 
   .msg {

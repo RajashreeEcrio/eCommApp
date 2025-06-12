@@ -13,20 +13,34 @@
     serverIP: "",
     port: "",
   };
-
   $: inputs = [
-    { key: "uname", placeholder: "Username" },
-    { key: "password", placeholder: "Password" },
-    { key: "phoneNum", placeholder: "Phone Number" },
-    { key: "serverIP", placeholder: "Server Address" },
-    { key: "port", placeholder: "Port" },
+    {
+      key: "uname",
+      placeholder: "Username",
+    },
+    {
+      key: "password",
+      placeholder: "Password",
+    },
+    {
+      key: "phoneNum",
+      placeholder: "Phone Number",
+    },
+    {
+      key: "serverIP",
+      placeholder: "Server Address",
+    },
+    {
+      key: "port",
+      placeholder: "Port",
+    },
   ];
-
   let show = false;
   $: currentId = 0;
   $: inputRefs = [];
 
   const validate = () => {
+    // checking for empty values
     if (
       formData.uname.trim() !== "" &&
       formData.password.trim() !== "" &&
@@ -34,6 +48,7 @@
       formData.serverIP.trim() !== "" &&
       formData.port.trim() !== ""
     ) {
+      // checking for proper characters
       const phoneregex = /^[+]?[0-9]+$/;
       const ipregex = /^(?:\d+\.)*\d+$/;
       const portregex = /^[0-9]+$/;
@@ -66,6 +81,7 @@
     }
   };
 
+  // Handling D-pad events
   const handleKeyDown = (e) => {
     if (e.key === "ArrowDown") {
       currentId + 1 >= inputRefs.length ? (currentId = 0) : (currentId += 1);
@@ -76,6 +92,7 @@
     }
   };
 
+  // Listening D-pad key events
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
     inputRefs[currentId].focus();
@@ -90,28 +107,41 @@
   <div class="wrapper">
     <img src="./assets/ecriologo.png" alt="Ecrio logo" class="logo" />
     <div class="inputWrapper">
-      {#each inputs as { key, placeholder }, i}
+      <!-- Iterating the input fields -->
+
+      {#each inputs as { key, placeholder }}
+        <!-- Normal text fields -->
         {#if key !== "password"}
           <TextBox
-            bind:value={formData[key]}
+            value={formData[key]}
             type="text"
-            bind:ref={inputRefs[i]}
+            bind:ref={inputRefs[inputRefs.length]}
             {placeholder}
             className="loginInput"
+            onInput={(e) => {
+              formData[key] = e.target.value;
+            }}
           />
         {:else}
+          <!-- Password field -->
           <div class="passwordWrapper">
             <TextBox
-              bind:value={formData[key]}
+              value={formData[key]}
               type={show ? "text" : "password"}
-              bind:ref={inputRefs[i]}
+              bind:ref={inputRefs[inputRefs.length]}
               {placeholder}
               className="loginInput"
+              onInput={(e) => {
+                formData[key] = e.target.value;
+              }}
             />
+            <!-- Show/Hide password button -->
             <button
-              on:click={() => (show = !show)}
+              bind:this={inputRefs[inputRefs.length]}
+              on:click={() => {
+                show = !show;
+              }}
               class="iconbtn"
-              aria-label="Toggle password visibility"
             >
               {#if show}
                 <i class="fa-solid fa-eye-slash"></i>
@@ -124,8 +154,9 @@
       {/each}
     </div>
 
+    <!-- Login button -->
     <button
-      bind:this={inputRefs[inputs.length]}
+      bind:this={inputRefs[6]}
       type="button"
       on:click={validate}
       class="loginBtn"
