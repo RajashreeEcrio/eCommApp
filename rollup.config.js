@@ -7,6 +7,8 @@ import terser from '@rollup/plugin-terser';
 import resolve from '@rollup/plugin-node-resolve';
 import livereload from 'rollup-plugin-livereload';
 import css from 'rollup-plugin-css-only';
+import json from '@rollup/plugin-json';
+import nodePolyfills from 'rollup-plugin-node-polyfills';
 
 const production = !process.env.ROLLUP_WATCH;
 
@@ -40,53 +42,55 @@ export default {
 		file: 'public/build/bundle.js'
 	},
 	plugins: [
+		
+		json(),
 		svelte({
 			compilerOptions: {
-				// enable run-time checks when not in production
 				dev: !production
 			}
 		}),
-		// we'll extract any component CSS out into
-		// a separate file - better for performance
 		css({ output: 'bundle.css' }),
-
-		// If you have external dependencies installed from
-		// npm, you'll most likely need these plugins. In
-		// some cases you'll need additional configuration -
-		// consult the documentation for details:
-		// https://github.com/rollup/plugins/tree/master/packages/commonjs
 		resolve({
-			browser: true,
-			dedupe: ['svelte'],
-			exportConditions: ['svelte']
-		}),
-		commonjs(),
-		babel({
-			presets:[['@babel/preset-env',{targets:"> 0.25%, not dead, ie 11", corejs:3, useBuiltIns:"usage",}]],
-			extensions:['.js','.mjs','.html','.svelte'],
-			babelHelpers:'bundled'
-		}),
+		browser: true,
+		preferBuiltins: false,
+		dedupe: ['svelte'],
+		exportConditions: ['svelte']
+	}),
 
-		// In dev mode, call `npm run start` once
-		// the bundle has been generated
+	// 2. Add node polyfills before commonjs
+	nodePolyfills(),
+
+	// 3. Convert CommonJS modules to ESModules
+	commonjs({
+		include: /node_modules/
+	}),
+		babel({
+			extensions: ['.js', '.mjs', '.html', '.svelte'],
+			babelHelpers: 'bundled',
+			presets: [
+				['@babel/preset-env', {
+					targets: { browsers: ['KaiOS >= 2.5', 'ie 11'] },
+					useBuiltIns: 'entry',
+					corejs: 3
+				}]
+			]
+		}),
 		!production && dev({
-			dirs:['public'],
-			spa:'public/index.html',
-			proxy:[
+			dirs: ['public'],
+			spa: 'public/index.html',
+			proxy: [
 				{
 					from:'/api',
 					to:'https://3.235.250.245:3003'
 				},
+				{
+					from:'/apiFile',
+					to:'http://3.235.250.245:8100'
+				},
 			],
-			host:'0.0.0.0'
+			host: '0.0.0.0'
 		}),
-
-		// Watch the `public` directory and refresh the
-		// browser on changes when not in production
 		!production && livereload('public'),
-
-		// If we're building for production (npm run build
-		// instead of npm run dev), minify
 		production && terser()
 	],
 	watch: {
