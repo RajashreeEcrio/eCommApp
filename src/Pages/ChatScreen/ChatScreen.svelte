@@ -103,19 +103,6 @@
     return tid;
   };
 
-  const extractTidfromXML = (xmlbody) => {
-    const xmlparser = new DOMParser();
-    const xmlDoc = xmlparser.parseFromString(xmlbody, "application/xml");
-    const dataTag = xmlDoc.querySelector("data");
-    if (dataTag) {
-      const responseURL = dataTag.getAttribute("url");
-      if (responseURL) {
-        const parts = responseURL.split("/");
-        return parts[parts.length - 1];
-      }
-    }
-  };
-
   const messageSend = () => {
     if (!msg.trim()) {
       alert("Message can't be empty");
@@ -151,7 +138,6 @@
       if (response.status === 401) {
         const authHeader = response.headers.get("www-authenticate");
         console.warn("Server responded with", response.status);
-        console.log("WWW-Authenticate:", authHeader);
 
         const authRegex = /(\w+)=["]?([^",]+)["]?/g;
         const authParams = {};
@@ -188,11 +174,11 @@
         });
         if (finalRes.ok) {
           const xmltext = await finalRes.text();
-          
+
           // sending SIP message
           sendMessage(
             $currentContact.contact_id,
-            `[image:${extractTidfromXML(xmltext)}]`,
+            xmltext,
             $sipFormData.phoneNum,
             "image",
             file64
@@ -201,7 +187,7 @@
           console.error("Final upload failed:", finalRes.status);
         }
       } else {
-        console.log("Upload successful:", response);
+        console.log("Upload successful:");
       }
     } catch (error) {
       console.log("error", error);
