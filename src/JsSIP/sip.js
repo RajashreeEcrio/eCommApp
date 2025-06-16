@@ -57,6 +57,11 @@ export const sendMessage = (to, message, senderUri, type, image) => {
 
   const now = new Date().toISOString();
   const contributionId = generateContributionId();
+  const content =
+    type === "image"
+      ? `IMAGE:::-:::${message}###-###`
+      : `TEXT:::-:::${message}`;
+  const contentLength = message.length + (type === "image" ? 19 : 11);
 
   const cpimBody =
     `From: <sip:${senderUri}@ecrio.com>\r\n` +
@@ -66,8 +71,8 @@ export const sendMessage = (to, message, senderUri, type, image) => {
     `imdn.Message-ID: ${contributionId}\r\n` +
     `imdn.Disposition-Notification: positive-delivery,display\r\n\r\n` +
     `Content-Type: text/plain;charset=UTF-8\r\n` +
-    `Content-Length: ${message.length + 11}\r\n\r\n` +
-    `TEXT:::-:::${message}`;
+    `Content-Length: ${contentLength}\r\n\r\n` +
+    `${content}`;
 
   const messageOptions = {
     contentType: "message/cpim",
@@ -142,19 +147,33 @@ export const sendImdnReceipt = (toUri, messageId, status = "delivered") => {
   ua.sendMessage(toUri, imdnXml, messageOptions);
 };
 
-const parseCpimBody = (body) => {
-  const contentMatch = body.match(/TEXT:::-:::(.*)/s);
-  let content = contentMatch ? contentMatch[1].trim() : null;
+const extractTidfromXML = (xmlbody) => {
+  const xmlparser = new DOMParser();
+  const xmlDoc = xmlparser.parseFromString(xmlbody, "application/xml");
+  const dataTag = xmlDoc.querySelector("data");
+  if (dataTag) {
+    const responseURL = dataTag.getAttribute("url");
+    if (responseURL) {
+      const parts = responseURL.split("/");
+      return parts[parts.length - 1];
+    }
+  }
+};
 
-  const typeCheck = /^\[image:([a-f0-9]{16})\]$/;
+const parseCpimBody = (body) => {
+  const imageMatch = body.match(/IMAGE:::-:::\s*([\s\S]*?)###-###/);
+  const textMatch = body.match(/TEXT:::-:::(.*)/s);
+
+  let content;
   let type = "text";
 
-  if (typeof content === "string") {
-    const match = content.match(typeCheck);
-    if (match) {
-      content = match[1];
-      type = "image";
-    }
+  if (imageMatch) {
+    content = extractTidfromXML(imageMatch[1].trim());
+    console.log(content, imageMatch[1], imageMatch);
+
+    type = "image";
+  } else if (textMatch) {
+    content = textMatch[1].trim();
   }
 
   const fromMatch = body.match(/^From:\s*<sip:([^>]+)>/m);
@@ -225,13 +244,13 @@ const downloadFile = async (tid) => {
         const blob = await finalRes.blob();
 
         const imgURL = URL.createObjectURL(blob);
-        
+
         return imgURL;
       } else {
         console.error("Final upload failed:", finalRes.status);
       }
     } else {
-      console.log("Fetching successful:", response);
+      console.log("Fetching successful:");
     }
   } catch (error) {
     console.log("Failed to fetch Image:", error);
