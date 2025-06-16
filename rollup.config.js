@@ -85,7 +85,7 @@ export default {
 				},
 				{
 					from:'/apiFile',
-					to:'http://3.235.250.245:8100'
+					to:'http://20.193.129.161:30017'
 				},
 			],
 			host: '0.0.0.0'
