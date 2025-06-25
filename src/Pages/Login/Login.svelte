@@ -55,7 +55,7 @@
 
       if (
         phoneregex.test(formData.phoneNum) &&
-        formData.phoneNum.length === 13 &&
+        formData.phoneNum.length >10 &&
         ipregex.test(formData.serverIP) &&
         portregex.test(formData.port)
       ) {

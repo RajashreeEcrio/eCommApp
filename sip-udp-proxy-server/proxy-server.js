@@ -3,7 +3,9 @@ const dgram = require("dgram");
 
 const WS_PORT = 5066; // Port where WebSocket listens
 const UDP_HOST = "192.168.227.217"; // EST tool IP
+// const UDP_HOST = "100.26.110.107"; // EST tool IP
 const UDP_PORT = 9090; // EST tool UDP port
+// const UDP_PORT = 32080; // EST tool UDP port
 const PROXY_PORT = 5067; // SIP Port used for forwarding via UDP
 
 const PROXY_HOST = "192.168.227.217";

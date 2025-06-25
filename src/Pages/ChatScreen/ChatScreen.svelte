@@ -149,13 +149,13 @@
 
         const usrname = $sipFormData.phoneNum;
         const pwd = $sipFormData.password;
-        const uri = "/api/v1/content";
+        const uri = "http://100.26.110.107:30017/api/v1/content";
         const realm = authParams.realm;
         const nonce = authParams.nonce;
         const nc = "00000001";
         const qop = authParams.qop;
         const opaque = authParams.opaque;
-        const cnonce = Math.random().toString(36).slice(2, 10);
+        const cnonce = Math.random().toString(36).slice(2, 16);
 
         const ha1 = SparkMD5.hash(`${usrname}:${realm}:${pwd}`);
         const ha2 = SparkMD5.hash(`POST:${uri}`);

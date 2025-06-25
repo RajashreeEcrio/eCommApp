@@ -5,7 +5,9 @@ import SparkMD5 from "spark-md5";
 
 let ua;
 
-const socket = new JsSIP.WebSocketInterface("ws://192.168.227.217:5066");
+const ip = "192.168.227.217";
+
+const socket = new JsSIP.WebSocketInterface(`ws://${ip}:5066`);
 
 export const registerSIP = (data) => {
   return new Promise((resolve, reject) => {
@@ -62,6 +64,16 @@ export const sendMessage = (to, message, senderUri, type, image) => {
       ? `IMAGE:::-:::${message}###-###`
       : `TEXT:::-:::${message}`;
   const contentLength = message.length + (type === "image" ? 19 : 11);
+  const contentType =
+    type === "image" ? "application/vnd.3gpp2.sms" : "message/cpim";
+  const AcceptContact =
+    type === "image"
+      ? "*;urn:urn-7:3gpp-service.ims.icsi.oma.cpm.msg"
+      : '*;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg";require;explicit';
+  const PreferredService =
+    type === "image"
+      ? "urn:urn-7:3gpp-service.ims.icsi.oma.cpm.msg.group"
+      : '+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg';
 
   const cpimBody =
     `From: <sip:${senderUri}@ecrio.com>\r\n` +
@@ -75,22 +87,23 @@ export const sendMessage = (to, message, senderUri, type, image) => {
     `${content}`;
 
   const messageOptions = {
-    contentType: "message/cpim",
+    contentType: contentType,
     extraHeaders: [
-      'Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg";require;explicit',
+      `Accept-Contact: ${AcceptContact}`,
       `P-Preferred-Identity: <sip:${senderUri}@ecrio.com>`,
-      'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
+      `P-Preferred-Service: ${PreferredService}`,
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.227.217:9090;lr>",
+      `Route: <sip:${ip}:9090;lr>`,
       `Conversation-ID: ${contributionId}`,
       `Contribution-ID: ${contributionId}`,
     ],
   };
 
   const target = `sip:${to}@ecrio.com`;
-  ua.sendMessage(target, cpimBody, messageOptions);
 
   if (type === "image") {
+    ua.sendMessage(target, content, messageOptions);
+
     addMessage({
       from: normalize(senderUri),
       to: normalize(to),
@@ -101,6 +114,8 @@ export const sendMessage = (to, message, senderUri, type, image) => {
       type: type,
     });
   } else {
+    ua.sendMessage(target, cpimBody, messageOptions);
+
     addMessage({
       from: normalize(senderUri),
       to: normalize(to),
@@ -140,7 +155,7 @@ export const sendImdnReceipt = (toUri, messageId, status = "delivered") => {
       'Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg";require;explicit',
       'P-Preferred-Service: +g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"',
       "Request-Disposition: no-fork",
-      "Route: <sip:192.168.227.217:9090;lr>",
+      `Route: <sip:${ip}:9090;lr>`,
     ],
   };
 
@@ -160,7 +175,9 @@ const extractTidfromXML = (xmlbody) => {
   }
 };
 
-const parseCpimBody = (body) => {
+const parseCpimBody = (body, e) => {
+  console.log("reached parse section");
+
   const imageMatch = body.match(/IMAGE:::-:::\s*([\s\S]*?)###-###/);
   const textMatch = body.match(/TEXT:::-:::(.*)/s);
 
@@ -176,17 +193,17 @@ const parseCpimBody = (body) => {
     content = textMatch[1].trim();
   }
 
-  const fromMatch = body.match(/^From:\s*<sip:([^>]+)>/m);
-  const from = fromMatch ? fromMatch[1].trim() : null;
+  const from = e.request.getHeader("From");
 
-  const toMatch = body.match(/^To:\s*<sip:([^>]+)>/m);
-  const to = toMatch ? toMatch[1].trim() : null;
+  const to = e.request.getHeader("To");
 
+  const now = new Date().toISOString();
   const dateMatch = body.match(/^DateTime:\s*(.+)$/m);
-  const datetime = dateMatch ? dateMatch[1].trim() : null;
+  const datetime = dateMatch ? dateMatch[1].trim() : now;
 
-  const messageIdMatch = body.match(/^imdn\.Message-ID:\s*(.+)$/m);
-  const messageId = messageIdMatch ? messageIdMatch[1].trim() : null;
+  const messageId = e.request.getHeader("Conversation-ID")
+    ? e.request.getHeader("Conversation-ID")
+    : null;
 
   return {
     from: normalize(from),
@@ -285,11 +302,9 @@ const initializeReceive = (uaInstance) => {
       return; // Skip further processing for IMDN
     }
 
-    const parsed = parseCpimBody(rawBody);
-    const from = parsed.from;
-    const to = parsed.to;
+    const parsed = parseCpimBody(rawBody, e);
 
-    if (from === myUser) {
+    if (parsed.from === myUser) {
       return; // Ignore echo
     }
 
@@ -298,8 +313,8 @@ const initializeReceive = (uaInstance) => {
     if (parsed.type === "image") {
       const img = await downloadFile(parsed.content);
       addMessage({
-        from,
-        to,
+        from: parsed.from,
+        to: parsed.to,
         content: img,
         datetime: parsed.datetime,
         messageId: msgId,
@@ -308,8 +323,8 @@ const initializeReceive = (uaInstance) => {
       });
     } else {
       addMessage({
-        from,
-        to,
+        from: parsed.from,
+        to: parsed.to,
         content: parsed.content,
         datetime: parsed.datetime,
         messageId: msgId,
@@ -319,8 +334,8 @@ const initializeReceive = (uaInstance) => {
     }
 
     // Auto-send IMDN receipt
-    if (from && msgId) {
-      sendImdnReceipt(`sip:${from}`, msgId);
+    if (parsed.from && msgId) {
+      sendImdnReceipt(`sip:${parsed.from}`, msgId);
     }
   });
 };
