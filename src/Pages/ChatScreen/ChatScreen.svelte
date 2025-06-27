@@ -46,6 +46,7 @@
           from: m.from,
           to: m.to,
           type: m.type,
+          datetime: m.datetime,
         };
       });
     sendDisplayedReceipts();
@@ -300,13 +301,17 @@
   <div class="chatwindow">
     {#each chats as currentmsg}
       {#if currentmsg.type === "image"}
-        <img
-          src={currentmsg.messagebody}
-          alt=""
-          class={currentmsg.className === "sendBubble"
+        <ChatBubble
+          id={"msg-" + currentmsg.messageId}
+          message={currentmsg.messagebody}
+          className={currentmsg.className === "sendBubble"
             ? "sendImageBubble"
             : "receiveImageBubble"}
-          on:load={scrollToBottom}
+          status={currentmsg.className === "sendBubble"
+            ? statuses[currentmsg.messageId] || "sent"
+            : ""}
+          type={currentmsg.type}
+          time={currentmsg.datetime}
         />
       {:else}
         <ChatBubble
@@ -316,6 +321,7 @@
           status={currentmsg.className === "sendBubble"
             ? statuses[currentmsg.messageId] || "sent"
             : ""}
+          time={currentmsg.datetime}
         />
       {/if}
     {/each}

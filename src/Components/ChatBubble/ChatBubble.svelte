@@ -3,25 +3,53 @@
   export let message = "";
   export let className = "";
   export let status = ""; // "sent", "delivered", "read"
+  export let type = "text";
+  export let time = "";
+
+  import TimeStamp from "../TimeStamp/TimeStamp.svelte";
 </script>
 
-<div {id} class={"chat-bubble " + className}>
-  <div class="content">
-    <span class="msg">{message}</span>
+{#if type === "image"}
+  <div {id} class={className === "sendImageBubble" ? "sendImgBox" : "receiveImgBox"}>
+    <img src={message} alt="" class={className} />
+    <div class="timeNstatus">
+      <TimeStamp {time} />
 
-    {#if className === "sendBubble" && status}
-      <span class="tick">
-        {#if status === "sent"}
-          ✓
-        {:else if status === "delivered"}
-          ✓✓
-        {:else if status === "read"}
-          <span class="blue-ticks">✓✓</span>
-        {/if}
-      </span>
-    {/if}
+      {#if className === "sendImageBubble" && status}
+        <span class="tick">
+          {#if status === "sent"}
+            ✓
+          {:else if status === "delivered"}
+            ✓✓
+          {:else if status === "read"}
+            <span class="blue-ticks">✓✓</span>
+          {/if}
+        </span>
+      {/if}
+    </div>
   </div>
-</div>
+{:else}
+  <div {id} class={"chat-bubble " + className}>
+    <div class="content">
+      <span class="msg">{message}</span>
+      <div class="timeNstatus">
+        <TimeStamp {time} />
+
+        {#if className === "sendBubble" && status}
+          <span class="tick">
+            {#if status === "sent"}
+              ✓
+            {:else if status === "delivered"}
+              ✓✓
+            {:else if status === "read"}
+              <span class="blue-ticks">✓✓</span>
+            {/if}
+          </span>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .chat-bubble {
@@ -38,8 +66,8 @@
 
   .content {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    justify-content: center;
     gap: 6px;
   }
 
@@ -57,14 +85,47 @@
     border-top-left-radius: 0;
   }
 
+  .sendImgBox {
+    display: flex;
+    flex-direction: column;
+    align-self: flex-end;
+    /* align-items: center; */
+    margin: 2vh 3vw;
+    gap: 1vw;
+    background: rgba(92, 128, 0, 0.924);
+    padding: 1.5vh 1.5vw 0.5vh 1.5vw;
+    border-radius: 4px;
+  }
+
+  .receiveImgBox {
+    display: flex;
+    flex-direction: column;
+    align-self: flex-start;
+    /* align-items: center; */
+    margin: 2vh 3vw;
+    gap: 1.15vw;
+    background: rgba(54, 137, 202, 1);
+    padding: 1.5vh 1.5vw 0.5vh 1.5vw;
+    border-radius: 4px;
+  }
+
+  .timeNstatus {
+    display: flex;
+    /* align-self: inherit; */
+    gap: 2vw;
+    justify-content: flex-end;
+    align-items: center;
+  }
+
   .tick {
-    font-size: 12px;
+    font-size: 0.6rem;
     opacity: 0.8;
     white-space: nowrap;
+    color: #fff;
   }
 
   .blue-ticks {
-    color: rgba(0, 234, 255, 1);
+    color: rgb(0 255 38);
   }
 
   .msg {

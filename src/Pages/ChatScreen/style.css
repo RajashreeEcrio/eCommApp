@@ -108,14 +108,12 @@ i {
 }
 
 .sendImageBubble {
-  height: 100px;
-  width: 100px;
+  height: 35vh;
+  width: 60vw;
   align-self: flex-end;
-  margin: 2vh 3vw;  
 }
 .receiveImageBubble {
-  height: 100px;
-  width: 100px;
+  height: 35vh;
+  width: 60vw;
   align-self: flex-start;
-  margin: 2vh 3vw;  
 }
