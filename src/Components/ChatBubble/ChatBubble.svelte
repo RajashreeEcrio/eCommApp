@@ -125,7 +125,7 @@
   }
 
   .blue-ticks {
-    color: rgb(0 255 38);
+    color: rgba(0, 255, 38, 0.8);
   }
 
   .msg {
