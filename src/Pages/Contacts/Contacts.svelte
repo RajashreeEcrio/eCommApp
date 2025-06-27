@@ -5,22 +5,7 @@
   import { currentContact } from "../../Store/store";
   import "./style.css";
 
-    let contacts = [
-    {
-      contact_id: "+17759802006",
-      contact_name: "Mom",
-      other_info: {
-        desc: "",
-      },
-    },
-    {
-      contact_id: "+16505550001",
-      contact_name: "User1",
-      other_info: {
-        desc: "",
-      },
-    },
-  ];
+    let contacts = [];
   let loading = false;
 
   let contactRefs = [];
@@ -83,7 +68,7 @@
   };
 
   onMount(() => {
-    // fetchData();
+    fetchData();
     
     window.addEventListener("keydown", handleKeyDown);
 

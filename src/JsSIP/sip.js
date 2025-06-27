@@ -175,6 +175,22 @@ const extractTidfromXML = (xmlbody) => {
   }
 };
 
+const normalizeAndroidDate = (rawDate) => {
+  const raw = new Date(rawDate);
+  const nowUTC = new Date();
+
+  if (!isNaN(raw.getTime())) {
+    const diffInHours = (raw.getTime() - nowUTC.getTime()) / (1000 * 60 * 60);
+    if (diffInHours > 1.5 && diffInHours < 6.5) {
+      return new Date(raw.getTime() - 5.5 * 60 * 60 * 1000).toISOString();
+    } else {
+      return raw.toISOString();
+    }
+  }
+
+  return new Date().toISOString();
+};
+
 const parseCpimBody = (body, e) => {
   console.log("reached parse section");
 
@@ -199,7 +215,7 @@ const parseCpimBody = (body, e) => {
 
   const now = new Date().toISOString();
   const dateMatch = body.match(/^DateTime:\s*(.+)$/m);
-  const datetime = dateMatch ? dateMatch[1].trim() : now;
+  const datetime = dateMatch ? normalizeAndroidDate(dateMatch[1].trim()) : now;
 
   const messageId = e.request.getHeader("Conversation-ID")
     ? e.request.getHeader("Conversation-ID")
